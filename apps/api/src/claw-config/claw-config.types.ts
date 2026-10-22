@@ -1,22 +1,29 @@
 export interface ModelConfig {
+  /** 传给大模型 API 的模型标识（如 gpt-4o），由用户填写 */
   id: string;
+  /** 唯一标识，用于 CRUD 操作 */
   name: string;
   provider: string;
-  baseUrl: string;
-  apiKey: string;
-  model: string;
+  base_url: string;
+  api_key: string;
   temperature: number;
+  active: number;
   description?: string;
   createdAt: number;
 }
 
 export interface ToolConfig {
-  id: string;
+  /** 英文名称，作为唯一键（如 web_search） */
   name: string;
+  /** 中文描述 */
   description: string;
-  category: string;
-  builtin: boolean;
-  enabled: boolean;
+  /** 是否启用（0-未启用，1-已启用） */
+  active: number;
+  /** 是否为内置工具（0-非内置，1-内置） */
+  builtin: number;
+  /** 工具分类（可选，用于 UI 展示） */
+  category?: string;
+  /** 工具内部配置项（可选） */
   config?: Record<string, unknown>;
 }
 
@@ -39,57 +46,51 @@ export interface ClawConfig {
 
 export const BUILTIN_TOOLS: ToolConfig[] = [
   {
-    id: 'web_search',
-    name: 'Web Search',
+    name: 'web_search',
     description: '通过搜索引擎查询实时信息',
+    active: 0,
+    builtin: 1,
     category: 'search',
-    builtin: true,
-    enabled: false,
     config: { engine: 'duckduckgo' },
   },
   {
-    id: 'code_executor',
-    name: 'Code Executor',
+    name: 'code_executor',
     description: '在沙箱中执行 Python / Node.js 代码',
+    active: 0,
+    builtin: 1,
     category: 'exec',
-    builtin: true,
-    enabled: false,
     config: { runtime: 'python3' },
   },
   {
-    id: 'file_operations',
-    name: 'File Operations',
+    name: 'file_operations',
     description: '读写工作目录下的文件',
+    active: 0,
+    builtin: 1,
     category: 'file',
-    builtin: true,
-    enabled: false,
     config: { workspace: '.' },
   },
   {
-    id: 'shell_command',
-    name: 'Shell Command',
+    name: 'shell_command',
     description: '执行系统命令行指令',
+    active: 0,
+    builtin: 1,
     category: 'exec',
-    builtin: true,
-    enabled: false,
     config: { timeout: 30 },
   },
   {
-    id: 'http_request',
-    name: 'HTTP Request',
+    name: 'http_request',
     description: '发送 HTTP 请求调用外部接口',
+    active: 0,
+    builtin: 1,
     category: 'network',
-    builtin: true,
-    enabled: false,
     config: { allowRedirects: true },
   },
   {
-    id: 'knowledge_base',
-    name: 'Knowledge Base',
+    name: 'knowledge_base',
     description: '查询本地知识库内容',
+    active: 0,
+    builtin: 1,
     category: 'search',
-    builtin: true,
-    enabled: false,
     config: { index: 'default' },
   },
 ];

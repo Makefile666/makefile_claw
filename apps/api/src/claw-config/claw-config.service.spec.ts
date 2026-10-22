@@ -89,7 +89,7 @@ describe('ClawConfigService (migration)', () => {
     );
     const config = service.readConfig();
     expect(config.tools.length).toBe(BUILTIN_TOOLS.length);
-    expect(config.tools.map((t) => t.id)).toEqual(BUILTIN_TOOLS.map((t) => t.id));
+    expect(config.tools.map((t) => t.name)).toEqual(BUILTIN_TOOLS.map((t) => t.name));
   });
 
   it('string tools array is kept as-is', () => {

@@ -1,4 +1,4 @@
-﻿import type { RequestOptions } from '@@/plugin-request/request';
+import type { RequestOptions } from '@@/plugin-request/request';
 import type { RequestConfig } from '@umijs/max';
 import { getIntl } from '@umijs/max';
 import { message, notification } from 'antd';
@@ -11,12 +11,20 @@ enum ErrorShowType {
   NOTIFICATION = 3,
   REDIRECT = 9,
 }
-// 与后端约定的响应数据格式
+// 与后端约定的响应数据格式：{ code, data, msg }
+// code = 0 表示成功，非 0 表示失败
 interface ResponseStructure {
-  success: boolean;
+  code: number;
   data: unknown;
-  errorCode?: number;
-  errorMessage?: string;
+  msg?: string;
+  success?: boolean;
+}
+
+// errorThrower 抛出的业务错误信息结构
+interface BizErrorInfo {
+  errorCode: number;
+  errorMessage: string;
+  data?: unknown;
   showType?: ErrorShowType;
 }
 
@@ -30,12 +38,12 @@ export const errorConfig: RequestConfig = {
   errorConfig: {
     // 错误抛出
     errorThrower: (res) => {
-      const { success, data, errorCode, errorMessage, showType } =
-        res as unknown as ResponseStructure;
-      if (!success) {
-        const error: any = new Error(errorMessage);
+      const { code, data, msg } = res as unknown as ResponseStructure;
+      // 兼容后端 { code, data, msg } 格式：code !== 0 视为业务错误
+      if (code !== 0) {
+        const error: any = new Error(msg ?? '请求失败');
         error.name = 'BizError';
-        error.info = { errorCode, errorMessage, showType, data };
+        error.info = { errorCode: code, errorMessage: msg, data };
         throw error; // 抛出自制的错误
       }
     },
@@ -44,7 +52,7 @@ export const errorConfig: RequestConfig = {
       if (opts?.skipErrorHandler) throw error;
       // 我们的 errorThrower 抛出的错误。
       if (error.name === 'BizError') {
-        const errorInfo: ResponseStructure | undefined = error.info;
+        const errorInfo: BizErrorInfo | undefined = error.info;
         if (errorInfo) {
           const { errorMessage, errorCode } = errorInfo;
           switch (errorInfo.showType) {

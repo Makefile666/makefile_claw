@@ -1,0 +1,27 @@
+$kind: http-request
+url: http://localhost:3000/api/models
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: "{\r
+
+    \    \"name\": \"GPT-4o\",\r
+
+    \    \"provider\": \"OpenAI\",\r
+
+    \    \"base_url\": \"https://api.openai.com/v1\",\r
+
+    \    \"api_key\": \"sk-xxx\",\r
+
+    \    \"id\": \"gpt-4o\",\r
+
+    \    \"temperature\": 0.7,\r
+
+    \    \"active\": 1,\r
+
+    \    \"description\": \"OpenAI GPT-4o\"\r
+
+    }"
+order: 3000

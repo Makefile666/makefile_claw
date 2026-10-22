@@ -18,6 +18,7 @@ import {
   Row,
   Space,
   Slider,
+  Switch,
   Tag,
   Typography,
   message,
@@ -27,7 +28,7 @@ import React, { useEffect, useState } from 'react';
 import {
   createModel,
   deleteModel,
-  listModels,
+  getMakefileClawModelsConfig,
   updateModel,
 } from './service';
 import type { ModelConfig } from './types';
@@ -46,184 +47,6 @@ const PROVIDER_OPTIONS = [
   'Ollama',
   'OpenAI-Compatible',
 ];
-
-// const ModelsPage: React.FC = () => {
-//   const [models, setModels] = useState<ModelConfig[]>([]);
-//   const [modalOpen, setModalOpen] = useState(false);
-//   const [editingModel, setEditingModel] = useState<ModelConfig | null>(null);
-//   const [form] = Form.useForm();
-
-//   const reload = async () => {
-//     setModels(await listModels());
-//   };
-
-//   useEffect(() => {
-//     reload();
-//   }, []);
-
-//   const openCreate = () => {
-//     setEditingModel(null);
-//     form.resetFields();
-//     form.setFieldsValue({ temperature: 0.7 });
-//     setModalOpen(true);
-//   };
-
-//   const openEdit = (model: ModelConfig) => {
-//     setEditingModel(model);
-//     form.setFieldsValue({
-//       name: model.name,
-//       provider: model.provider,
-//       baseUrl: model.baseUrl,
-//       apiKey: model.apiKey,
-//       model: model.model,
-//       temperature: model.temperature,
-//       description: model.description,
-//     });
-//     setModalOpen(true);
-//   };
-
-//   const handleSubmit = async () => {
-//     try {
-//       const values = await form.validateFields();
-//       if (editingModel) {
-//         await updateModel(editingModel.id, values);
-//         message.success('模型配置已更新');
-//       } else {
-//         await createModel(values);
-//         message.success('模型配置已创建');
-//       }
-//       setModalOpen(false);
-//       reload();
-//     } catch {
-//       // validation error
-//     }
-//   };
-
-//   const handleDelete = async (id: string) => {
-//     await deleteModel(id);
-//     message.success('模型配置已删除');
-//     reload();
-//   };
-
-//   const maskApiKey = (key: string) => {
-//     if (!key) return '未设置';
-//     if (key.length <= 8) return '•'.repeat(key.length);
-//     return `${key.slice(0, 4)}••••${key.slice(-4)}`;
-//   };
-
-//   return (
-//     <PageContainer
-//       header={{
-//         title: 'Models',
-//         subTitle: '配置大模型服务接入',
-//         extra: [
-//           <Button key="create" type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-//             添加模型
-//           </Button>,
-//         ],
-//       }}
-//     >
-//       {models.length === 0 ? (
-//         <Card>
-//           <Empty
-//             description="还没有模型配置，点击右上角「添加模型」开始"
-//             style={{ padding: 40 }}
-//           />
-//         </Card>
-//       ) : (
-//         <Row gutter={[16, 16]}>
-//           {models.map((model) => (
-//             <Col xs={24} sm={12} md={8} lg={6} key={model.id}>
-//               <Card
-//                 hoverable
-//                 style={{ height: '100%' }}
-//                 actions={[
-//                   <Button type="text" icon={<EditOutlined />} onClick={() => openEdit(model)}>
-//                     编辑
-//                   </Button>,
-//                   <Popconfirm title="确认删除该模型配置？" onConfirm={() => handleDelete(model.id)}>
-//                     <Button type="text" danger icon={<DeleteOutlined />}>
-//                       删除
-//                     </Button>
-//                   </Popconfirm>,
-//                 ]}
-//               >
-//                 <Card.Meta
-//                   avatar={<CloudOutlined style={{ fontSize: 32 }} />}
-//                   title={<Title level={5} style={{ margin: 0 }}>{model.name}</Title>}
-//                   description={<Text type="secondary">{model.description || '暂无描述'}</Text>}
-//                 />
-//                 <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 8 }}>
-//                   <Space direction="vertical" size={4}>
-//                     <span>服务商：<Tag color="purple">{model.provider}</Tag></span>
-//                     <span>模型：<Tag color="blue">{model.model}</Tag></span>
-//                     <span>Temperature：<Tag color="orange">{model.temperature}</Tag></span>
-//                     <span>Base URL：<Text code>{model.baseUrl || '-'}</Text></span>
-//                     <span>API Key：<Text code>{maskApiKey(model.apiKey)}</Text></span>
-//                   </Space>
-//                 </Paragraph>
-//               </Card>
-//             </Col>
-//           ))}
-//         </Row>
-//       )}
-
-//       <Modal
-//         title={editingModel ? '编辑模型配置' : '添加模型配置'}
-//         open={modalOpen}
-//         onOk={handleSubmit}
-//         onCancel={() => setModalOpen(false)}
-//         width={640}
-//         destroyOnClose
-//       >
-//         <Form form={form} layout="vertical" preserve={false}>
-//           <ProFormText name="name" label="名称" placeholder="例如：GPT-4o" rules={[{ required: true, message: '请输入名称' }]} />
-//           <Form.Item
-//             name="provider"
-//             label="服务商"
-//             rules={[{ required: true, message: '请选择服务商' }]}
-//           >
-//             <Input
-//               placeholder="选择或输入服务商"
-//               list="provider-options"
-//             />
-//           </Form.Item>
-//           <datalist id="provider-options">
-//             {PROVIDER_OPTIONS.map((p) => (
-//               <option key={p} value={p} />
-//             ))}
-//           </datalist>
-//           <ProFormText name="model" label="Model ID" placeholder="例如：gpt-4o" rules={[{ required: true, message: '请输入 Model ID' }]} />
-//           <ProFormText name="baseUrl" label="Base URL" placeholder="例如：https://api.openai.com/v1" />
-//           <Form.Item name="apiKey" label="API Key" rules={[{ required: true, message: '请输入 API Key' }]}>
-//             <Input.Password placeholder="sk-..." />
-//           </Form.Item>
-//           <Form.Item
-//             name="temperature"
-//             label="Temperature"
-//             rules={[{ required: true, message: '请设置 Temperature' }]}
-//             tooltip="采样温度，值越高回答越随机，越低越确定"
-//           >
-//             <Slider
-//               min={0}
-//               max={2}
-//               step={0.1}
-//               marks={{ 0: '0', 0.7: '0.7', 1: '1', 2: '2' }}
-//             />
-//           </Form.Item>
-//           <Row gutter={16}>
-//             <Col span={12}>
-//               <Form.Item name="temperature" noStyle>
-//                 <InputNumber min={0} max={2} step={0.1} style={{ width: '100%' }} />
-//               </Form.Item>
-//             </Col>
-//           </Row>
-//           <ProFormTextArea name="description" label="描述" placeholder="该模型配置的用途说明" />
-//         </Form>
-//       </Modal>
-//     </PageContainer>
-//   );
-// };
 
 
 /**
@@ -245,7 +68,7 @@ const ModelsPage: React.FC = () => {
    * 请求后端接口，获取全部模型配置并更新状态
    */
   const reload = async () => {
-    setModels(await listModels());
+    setModels(await getMakefileClawModelsConfig());
   };
 
   // 组件首次挂载，加载模型数据
@@ -260,7 +83,7 @@ const ModelsPage: React.FC = () => {
   const openCreate = () => {
     setEditingModel(null);
     form.resetFields();
-    form.setFieldsValue({ temperature: 0.7 });
+    form.setFieldsValue({ temperature: 0.7, active: 1 });
     setModalOpen(true);
   };
 
@@ -274,10 +97,11 @@ const ModelsPage: React.FC = () => {
     form.setFieldsValue({
       name: model.name,
       provider: model.provider,
-      baseUrl: model.baseUrl,
-      apiKey: model.apiKey,
-      model: model.model,
+      base_url: model.base_url,
+      api_key: model.api_key,
+      id: model.id,
       temperature: model.temperature,
+      active: model.active ?? 1,
       description: model.description,
     });
     setModalOpen(true);
@@ -291,13 +115,15 @@ const ModelsPage: React.FC = () => {
     try {
       // 触发表单校验，校验失败抛出异常进入catch
       const values = await form.validateFields();
+      // active 开关布尔值转为后端约定的 1/0
+      const payload = { ...values, active: values.active ? 1 : 0 };
       if (editingModel) {
-        // 编辑模式：调用更新接口
-        await updateModel(editingModel.id, values);
+        // 编辑模式：调用更新接口（按 name 定位）
+        await updateModel(editingModel.name, payload);
         message.success('模型配置已更新');
       } else {
         // 新增模式：调用创建接口
-        await createModel(values);
+        await createModel(payload);
         message.success('模型配置已创建');
       }
       setModalOpen(false);
@@ -309,11 +135,22 @@ const ModelsPage: React.FC = () => {
 
   /**
    * 五、删除模型配置
-   * @param id 模型唯一ID
+   * @param name 模型唯一标识（name）
    */
-  const handleDelete = async (id: string) => {
-    await deleteModel(id);
+  const handleDelete = async (name: string) => {
+    await deleteModel(name);
     message.success('模型配置已删除');
+    reload();
+  };
+
+  /**
+   * 单独切换模型启用/停用状态
+   * @param model 目标模型
+   * @param checked Switch开关布尔值
+   */
+  const handleToggleActive = async (model: ModelConfig, checked: boolean) => {
+    await updateModel(model.name, { active: checked ? 1 : 0 });
+    message.success(checked ? '已启用' : '已停用');
     reload();
   };
 
@@ -351,8 +188,10 @@ const ModelsPage: React.FC = () => {
       ) : (
         // 响应式卡片网格
         <Row gutter={[16, 16]}>
-          {models.map((model) => (
-            <Col xs={24} sm={12} md={8} lg={6} key={model.id}>
+          {models.map((model) => {
+            const isActive = model.active === 1;
+            return (
+            <Col xs={24} sm={12} md={8} lg={6} key={model.name}>
               <Card
                 hoverable
                 style={{ height: '100%' }}
@@ -361,7 +200,7 @@ const ModelsPage: React.FC = () => {
                   <Button type="text" icon={<EditOutlined />} onClick={() => openEdit(model)}>
                     编辑
                   </Button>,
-                  <Popconfirm title="确认删除该模型配置？" onConfirm={() => handleDelete(model.id)}>
+                  <Popconfirm title="确认删除该模型配置？" onConfirm={() => handleDelete(model.name)}>
                     <Button type="text" danger icon={<DeleteOutlined />}>
                       删除
                     </Button>
@@ -370,21 +209,38 @@ const ModelsPage: React.FC = () => {
               >
                 <Card.Meta
                   avatar={<CloudOutlined style={{ fontSize: 32 }} />}
-                  title={<Title level={5} style={{ margin: 0 }}>{model.name}</Title>}
+                  title={
+                    <Space>
+                      <Title level={5} style={{ margin: 0 }}>{model.name}</Title>
+                      <Tag color={isActive ? 'green' : 'default'}>
+                        {isActive ? '启用' : '停用'}
+                      </Tag>
+                    </Space>
+                  }
                   description={<Text type="secondary">{model.description || '暂无描述'}</Text>}
                 />
                 <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 8 }}>
                   <Space direction="vertical" size={4}>
                     <span>服务商：<Tag color="purple">{model.provider}</Tag></span>
-                    <span>模型：<Tag color="blue">{model.model}</Tag></span>
+                    <span>模型：<Tag color="blue">{model.id}</Tag></span>
                     <span>Temperature：<Tag color="orange">{model.temperature}</Tag></span>
-                    <span>Base URL：<Text code>{model.baseUrl || '-'}</Text></span>
-                    <span>API Key：<Text code>{maskApiKey(model.apiKey)}</Text></span>
+                    <span>Base URL：<Text code>{model.base_url || '-'}</Text></span>
+                    <span>API Key：<Text code>{maskApiKey(model.api_key)}</Text></span>
                   </Space>
                 </Paragraph>
+                <div>
+                  <Space>
+                    <Text type="secondary">启用状态</Text>
+                    <Switch
+                      checked={isActive}
+                      onChange={(checked) => handleToggleActive(model, checked)}
+                    />
+                  </Space>
+                </div>
               </Card>
             </Col>
-          ))}
+            );
+          })}
         </Row>
       )}
 
@@ -416,9 +272,9 @@ const ModelsPage: React.FC = () => {
               <option key={p} value={p} />
             ))}
           </datalist>
-          <ProFormText name="model" label="Model ID" placeholder="例如：gpt-4o" rules={[{ required: true, message: '请输入 Model ID' }]} />
-          <ProFormText name="baseUrl" label="Base URL" placeholder="例如：https://api.openai.com/v1" />
-          <Form.Item name="apiKey" label="API Key" rules={[{ required: true, message: '请输入 API Key' }]}>
+          <ProFormText name="id" label="Model ID" placeholder="例如：gpt-4o" rules={[{ required: true, message: '请输入 Model ID' }]} />
+          <ProFormText name="base_url" label="Base URL" placeholder="例如：https://api.openai.com/v1" />
+          <Form.Item name="api_key" label="API Key" rules={[{ required: true, message: '请输入 API Key' }]}>
             {/* 密码框输入，隐藏明文 */}
             <Input.Password placeholder="sk-..." />
           </Form.Item>
@@ -444,6 +300,10 @@ const ModelsPage: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
+          {/* 启用状态：valuePropName=checked 绑定 Switch 的 checked 属性 */}
+          <Form.Item name="active" label="启用状态" valuePropName="checked" tooltip="停用后该模型不可被智能体选用">
+            <Switch checkedChildren="启用" unCheckedChildren="停用" />
+          </Form.Item>
           <ProFormTextArea name="description" label="描述" placeholder="该模型配置的用途说明" />
         </Form>
       </Modal>

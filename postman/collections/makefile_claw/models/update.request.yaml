@@ -1,0 +1,9 @@
+$kind: http-request
+url: http://localhost:3000/api/models/GPT-4o
+method: PUT
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: '{"active":0}'
+order: 4000

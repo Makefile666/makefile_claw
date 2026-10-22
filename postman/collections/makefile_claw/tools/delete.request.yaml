@@ -1,0 +1,4 @@
+$kind: http-request
+url: http://localhost:3000/api/tools/my_tool
+method: DELETE
+order: 5000

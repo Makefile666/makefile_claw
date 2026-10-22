@@ -1,4 +1,19 @@
 $kind: http-request
-url: ""
-method: GET
+url: http://localhost:3000/api/agents
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+        "name": "coding-assistant",
+        "description": "负责代码生成、重构与问题排查",
+        "model": "glm-5.1",
+        "systemPrompt": "你是一个擅长代码实现、重构和问题诊断的智能体",
+        "tools": [
+          { "id": "web_search" },
+          { "id": "code_executor"}
+        ]
+      }
 order: 2000

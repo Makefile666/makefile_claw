@@ -8,6 +8,7 @@ import {
   DEFAULT_CONFIG,
   type AgentConfig,
   type ClawConfig,
+  type ModelConfig,
   type ToolConfig,
 } from './claw-config.types.js';
 
@@ -32,6 +33,54 @@ const migrateAgent = (raw: Record<string, unknown>): AgentConfig => {
     tools,
     active: typeof raw.active === 'number' ? raw.active : 1,
     createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
+  };
+};
+
+/**
+ * 兼容旧版 Model 字段：
+ * - model(LLM模型标识) -> id
+ * - baseUrl            -> base_url
+ * - apiKey             -> api_key
+ * - active             缺失时默认 1（启用）
+ * 旧版 id 为自增主键(model_xxx)，新版 id 为传给大模型 API 的模型标识，
+ * 因此优先取旧 model 字段作为新 id。
+ */
+const migrateModel = (raw: Record<string, unknown>): ModelConfig => {
+  return {
+    id: String(raw.model ?? raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    provider: String(raw.provider ?? ''),
+    base_url: String(raw.base_url ?? raw.baseUrl ?? ''),
+    api_key: String(raw.api_key ?? raw.apiKey ?? ''),
+    temperature: typeof raw.temperature === 'number' ? raw.temperature : 0.7,
+    active: typeof raw.active === 'number' ? raw.active : 1,
+    description: raw.description != null ? String(raw.description) : undefined,
+    createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
+  };
+};
+
+/**
+ * 兼容旧版 Tool 字段：
+ * - id(英文标识)       -> name（唯一键）
+ * - enabled(boolean)    -> active（0/1）
+ * - builtin(boolean)    -> builtin（0/1）
+ * - active              缺失时默认 0（未启用）
+ * - builtin             缺失时默认 0
+ */
+const migrateTool = (raw: Record<string, unknown>): ToolConfig => {
+  return {
+    // 旧版 id 为英文唯一键(如 web_search)，name 为显示名(如 Web Search)
+    // 新版 name 作为唯一键，因此优先取旧 id
+    name: String(raw.id ?? raw.name ?? ''),
+    description: String(raw.description ?? ''),
+    active: typeof raw.active === 'number'
+      ? raw.active
+      : raw.enabled === true ? 1 : 0,
+    builtin: typeof raw.builtin === 'number'
+      ? raw.builtin
+      : raw.builtin === true ? 1 : 0,
+    category: raw.category != null ? String(raw.category) : undefined,
+    config: (raw.config as Record<string, unknown>) ?? undefined,
   };
 };
 
@@ -122,24 +171,27 @@ export class ClawConfigService implements OnModuleInit {
       config = { ...DEFAULT_CONFIG };
     }
     // 合并内置工具：已存在的保留用户设置，新增的补默认值
-    const existingToolIds = new Set(config.tools?.map((t) => t.id) ?? []);
+    const existingToolNames = new Set((config.tools ?? []).map((t) => (t as ToolConfig).name));
+    const migratedTools: ToolConfig[] = (config.tools ?? []).map((t) =>
+      migrateTool(t as unknown as Record<string, unknown>),
+    );
     const mergedTools: ToolConfig[] = [
-      ...(config.tools ?? []),
-      ...BUILTIN_TOOLS.filter((t) => !existingToolIds.has(t.id)),
+      ...migratedTools,
+      ...BUILTIN_TOOLS.filter((t) => !existingToolNames.has(t.name)),
     ];
     return {
       agents: (config.agents ?? []).map((a) => migrateAgent(a as unknown as Record<string, unknown>)),
-      models: config.models ?? [],
+      models: (config.models ?? []).map((m) => migrateModel(m as unknown as Record<string, unknown>)),
       tools: mergedTools,
     };
   }
 
   /** 保存完整配置 */
   saveConfig(config: ClawConfig): ClawConfig {
-    const existingToolIds = new Set(config.tools?.map((t) => t.id) ?? []);
+    const existingToolNames = new Set((config.tools ?? []).map((t) => t.name));
     const mergedTools: ToolConfig[] = [
       ...(config.tools ?? []),
-      ...BUILTIN_TOOLS.filter((t) => !existingToolIds.has(t.id)),
+      ...BUILTIN_TOOLS.filter((t) => !existingToolNames.has(t.name)),
     ];
     const toSave: ClawConfig = {
       agents: config.agents ?? [],

@@ -31,8 +31,8 @@ export class ModelsService {
     }
     const newModel: ModelConfig = {
       active: 1,
+      api_key_from_env: 0,
       ...dto,
-      createdAt: Date.now(),
     };
     config.models.push(newModel);
     this.clawConfigService.saveConfig(config);
@@ -52,7 +52,7 @@ export class ModelsService {
         throw new ConflictException(`Model ${dto.name} 已存在`);
       }
     }
-    const updated: ModelConfig = { ...config.models[idx], ...dto, createdAt: config.models[idx].createdAt };
+    const updated: ModelConfig = { ...config.models[idx], ...dto };
     config.models[idx] = updated;
     this.clawConfigService.saveConfig(config);
     return updated;
@@ -67,5 +67,22 @@ export class ModelsService {
     }
     config.models = config.models.filter((m) => m.name !== name);
     this.clawConfigService.saveConfig(config);
+  }
+
+  /**
+   * 解析模型的真实 API Key
+   * - api_key_from_env === 1：api_key 字段存储的是环境变量名，从 process.env 中读取真实密钥
+   * - 否则：api_key 字段即为明文密钥
+   * @param model 模型配置
+   * @returns 真实可用的 API Key，若环境变量未设置则返回空字符串
+   */
+  resolveApiKey(model: ModelConfig): string {
+    // 标记 api_key_from_env = 1 的时候
+    if (model.api_key_from_env === 1) {
+      // 把 model.api_key 当做【环境变量名】去 process.env 里面取值
+      return process.env[model.api_key] ?? '';
+    }
+    // 否则直接返回配置里填的 api_key 明文
+    return model.api_key;
   }
 }

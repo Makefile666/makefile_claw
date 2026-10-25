@@ -41,7 +41,7 @@ const DEFAULT_CONFIG: ClawConfig = {
 /**
  * 【重点兼容迁移函数】migrateAgent
  * 作用：兼容老版本存储里的 agent 数据结构，做字段归一化
- * 旧字段兼容：modelId 映射到 model；tools 支持老格式对象数组提取 id；补全 active 默认值、createdAt
+ * 旧字段兼容：modelId 映射到 model；tools 支持老格式对象数组提取 id；补全 active 默认值
  * 防止老缓存数据结构不对，页面渲染报错
  * @param raw 从存储里读出来的原始、可能不规范的agent对象
  * @returns 标准化之后符合 AgentConfig 类型的对象
@@ -53,14 +53,12 @@ const migrateAgent = (raw: Record<string, unknown>): AgentConfig => {
         .filter((id): id is string => !!id)
     : [];
   return {
-    id: String(raw.id ?? ''),
     name: String(raw.name ?? ''),
     description: String(raw.description ?? ''),
     model: String(raw.model ?? raw.modelId ?? ''),
     systemPrompt: String(raw.systemPrompt ?? ''),
     tools,
     active: typeof raw.active === 'number' ? raw.active : 1,
-    createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
   };
 };
 /**
@@ -153,9 +151,9 @@ export async function listAgents(): Promise<AgentConfig[]> {
 }
 /**
  * 新建Agent，请求后端 POST /agents
- * ✅ id、createdAt 在后端生成，前端不需要构造
+ * name 为唯一标识，由前端填写
  */
-export async function createAgent(agent: Omit<AgentConfig, 'id' | 'createdAt'>): Promise<AgentConfig> {
+export async function createAgent(agent: AgentConfig): Promise<AgentConfig> {
   const res = await request<{ code: number; data: AgentConfig; msg: string }>(
     `${BASE_URL}/agents`,
     { method: 'POST', data: agent },
@@ -163,22 +161,22 @@ export async function createAgent(agent: Omit<AgentConfig, 'id' | 'createdAt'>):
   return res.data;
 }
 /**
- * 更新Agent，请求后端 PUT /agents/:id
+ * 更新Agent，请求后端 PUT /agents/:name
  * ✅ 仅传递需要修改的字段patch，不需要传完整agent对象
  */
-export async function updateAgent(id: string, patch: Partial<AgentConfig>): Promise<AgentConfig | undefined> {
+export async function updateAgent(name: string, patch: Partial<AgentConfig>): Promise<AgentConfig | undefined> {
   const res = await request<{ code: number; data: AgentConfig; msg: string }>(
-    `${BASE_URL}/agents/${id}`,
+    `${BASE_URL}/agents/${name}`,
     { method: 'PUT', data: patch },
   );
   return res.data;
 }
 /**
- * 删除Agent，请求后端 DELETE /agents/:id
+ * 删除Agent，请求后端 DELETE /agents/:name
  */
-export async function deleteAgent(id: string): Promise<void> {
+export async function deleteAgent(name: string): Promise<void> {
   await request<{ code: number; data: null; msg: string }>(
-    `${BASE_URL}/agents/${id}`,
+    `${BASE_URL}/agents/${name}`,
     { method: 'DELETE' },
   );
 }
@@ -208,7 +206,7 @@ export async function getMakefileClawModelsConfig(): Promise<ModelConfig[]> {
       4. 表单对象放到 `data` 里，序列成 JSON 放在请求体
       5. 发到你 Nest 的 `@Controller('api/models')` 里的 `@Post()` 接口
 */
-export async function createModel(model: Omit<ModelConfig, 'createdAt'>): Promise<ModelConfig> {
+export async function createModel(model: ModelConfig): Promise<ModelConfig> {
   const res = await request<{ code: number; data: ModelConfig; msg: string }>(
     `${BASE_URL}/models`,
     // POST：前端 → 后端，提交表单、新增一条model

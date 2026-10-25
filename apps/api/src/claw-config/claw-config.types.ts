@@ -6,10 +6,11 @@ export interface ModelConfig {
   provider: string;
   base_url: string;
   api_key: string;
+  /** API Key 是否从环境变量读取（0-否，1-是），默认 1 */
+  api_key_from_env?: number;
   temperature: number;
   active: number;
   description?: string;
-  createdAt: number;
 }
 
 export interface ToolConfig {
@@ -28,14 +29,12 @@ export interface ToolConfig {
 }
 
 export interface AgentConfig {
-  id: string;
   name: string;
   description: string;
   model: string;
   systemPrompt: string;
   tools: string[];
   active: number;
-  createdAt: number;
 }
 
 export interface ClawConfig {

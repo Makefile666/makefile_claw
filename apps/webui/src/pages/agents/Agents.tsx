@@ -169,8 +169,8 @@ const AgentsPage: React.FC = () => {
         active: values.active ? 1 : 0,
       };
       if (editingAgent) {
-        // 编辑模式：调用更新接口
-        await updateAgent(editingAgent.id, payload);
+        // 编辑模式：调用更新接口（按 name 定位）
+        await updateAgent(editingAgent.name, payload);
         message.success('智能体已更新');
       } else {
         // 新建模式：调用创建接口
@@ -186,10 +186,10 @@ const AgentsPage: React.FC = () => {
 
   /**
    * 五、删除智能体
-   * @param id 智能体唯一id
+   * @param name 智能体名称（唯一标识）
    */
-  const handleDelete = async (id: string) => {
-    await deleteAgent(id);
+  const handleDelete = async (name: string) => {
+    await deleteAgent(name);
     message.success('智能体已删除');
     reload();
   };
@@ -200,7 +200,7 @@ const AgentsPage: React.FC = () => {
    * @param checked Switch开关布尔值
    */
   const handleToggleActive = async (agent: AgentConfig, checked: boolean) => {
-    await updateAgent(agent.id, { active: checked ? 1 : 0 });
+    await updateAgent(agent.name, { active: checked ? 1 : 0 });
     message.success(checked ? '已启用' : '已停用');
     reload();
   };
@@ -240,7 +240,7 @@ const AgentsPage: React.FC = () => {
             // 判断当前智能体启用状态
             const isActive = agent.active === 1;
             return (
-              <Col xs={24} sm={12} md={8} lg={6} key={agent.id}>
+              <Col xs={24} sm={12} md={8} lg={6} key={agent.name}>
                 <Card
                   hoverable
                   style={{ height: '100%' }}
@@ -249,7 +249,7 @@ const AgentsPage: React.FC = () => {
                     <Button type="text" icon={<EditOutlined />} onClick={() => openEdit(agent)}>
                       编辑
                     </Button>,
-                    <Popconfirm title="确认删除该智能体？" onConfirm={() => handleDelete(agent.id)}>
+                    <Popconfirm title="确认删除该智能体？" onConfirm={() => handleDelete(agent.name)}>
                       <Button type="text" danger icon={<DeleteOutlined />}>
                         删除
                       </Button>

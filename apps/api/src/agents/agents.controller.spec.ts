@@ -10,33 +10,29 @@ describe('AgentsController', () => {
   let service: AgentsService;
 
   const mockAgent: AgentConfig = {
-    id: 'agent_test_001',
     name: 'TestAgent',
     description: 'test description',
     model: 'model_1',
     systemPrompt: 'you are helpful',
     tools: ['web_search'],
     active: 1,
-    createdAt: 1234567890,
   };
 
   const mockAgentsService = {
     findAll: vi.fn().mockReturnValue([mockAgent]),
-    findOne: vi.fn().mockImplementation((id: string) => {
-      if (id === mockAgent.id) return mockAgent;
-      throw new NotFoundException(`Agent ${id} 不存在`);
+    findOne: vi.fn().mockImplementation((name: string) => {
+      if (name === mockAgent.name) return mockAgent;
+      throw new NotFoundException(`Agent ${name} 不存在`);
     }),
     create: vi.fn().mockImplementation((dto: CreateAgentDto) => ({
       ...dto,
-      id: 'agent_new_001',
-      createdAt: Date.now(),
     })),
-    update: vi.fn().mockImplementation((id: string, dto: UpdateAgentDto) => {
-      if (id === mockAgent.id) return { ...mockAgent, ...dto };
-      throw new NotFoundException(`Agent ${id} 不存在`);
+    update: vi.fn().mockImplementation((name: string, dto: UpdateAgentDto) => {
+      if (name === mockAgent.name) return { ...mockAgent, ...dto };
+      throw new NotFoundException(`Agent ${name} 不存在`);
     }),
-    remove: vi.fn().mockImplementation((id: string) => {
-      if (id !== mockAgent.id) throw new NotFoundException(`Agent ${id} 不存在`);
+    remove: vi.fn().mockImplementation((name: string) => {
+      if (name !== mockAgent.name) throw new NotFoundException(`Agent ${name} 不存在`);
     }),
   };
 
@@ -65,15 +61,15 @@ describe('AgentsController', () => {
     });
   });
 
-  describe('GET /api/agents/:id', () => {
-    it('should return the agent when id exists', () => {
-      const result = controller.findOne(mockAgent.id);
+  describe('GET /api/agents/:name', () => {
+    it('should return the agent when name exists', () => {
+      const result = controller.findOne(mockAgent.name);
       expect(result.code).toBe(0);
       expect(result.data).toEqual(mockAgent);
-      expect(service.findOne).toHaveBeenCalledWith(mockAgent.id);
+      expect(service.findOne).toHaveBeenCalledWith(mockAgent.name);
     });
 
-    it('should throw NotFoundException when id does not exist', () => {
+    it('should throw NotFoundException when name does not exist', () => {
       expect(() => controller.findOne('nonexistent')).toThrow(NotFoundException);
     });
   });
@@ -91,37 +87,36 @@ describe('AgentsController', () => {
       const result = controller.create(dto);
       expect(result.code).toBe(0);
       expect(result.msg).toBe('创建成功');
-      expect(result.data.id).toBe('agent_new_001');
       expect(result.data.name).toBe('NewAgent');
       expect(service.create).toHaveBeenCalledWith(dto);
     });
   });
 
-  describe('PUT /api/agents/:id', () => {
+  describe('PUT /api/agents/:name', () => {
     it('should update and return the agent', () => {
       const dto: UpdateAgentDto = { name: 'UpdatedAgent' };
-      const result = controller.update(mockAgent.id, dto);
+      const result = controller.update(mockAgent.name, dto);
       expect(result.code).toBe(0);
       expect(result.msg).toBe('更新成功');
       expect(result.data.name).toBe('UpdatedAgent');
-      expect(service.update).toHaveBeenCalledWith(mockAgent.id, dto);
+      expect(service.update).toHaveBeenCalledWith(mockAgent.name, dto);
     });
 
-    it('should throw NotFoundException when id does not exist', () => {
+    it('should throw NotFoundException when name does not exist', () => {
       expect(() => controller.update('nonexistent', {})).toThrow(NotFoundException);
     });
   });
 
-  describe('DELETE /api/agents/:id', () => {
+  describe('DELETE /api/agents/:name', () => {
     it('should return success when deletion succeeds', () => {
-      const result = controller.remove(mockAgent.id);
+      const result = controller.remove(mockAgent.name);
       expect(result.code).toBe(0);
       expect(result.msg).toBe('删除成功');
       expect(result.data).toBeNull();
-      expect(service.remove).toHaveBeenCalledWith(mockAgent.id);
+      expect(service.remove).toHaveBeenCalledWith(mockAgent.name);
     });
 
-    it('should throw NotFoundException when id does not exist', () => {
+    it('should throw NotFoundException when name does not exist', () => {
       expect(() => controller.remove('nonexistent')).toThrow(NotFoundException);
     });
   });

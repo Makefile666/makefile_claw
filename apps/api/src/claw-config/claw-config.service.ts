@@ -25,14 +25,12 @@ const migrateAgent = (raw: Record<string, unknown>): AgentConfig => {
         .filter((id): id is string => !!id)
     : [];
   return {
-    id: String(raw.id ?? ''),
     name: String(raw.name ?? ''),
     description: String(raw.description ?? ''),
     model: String(raw.model ?? raw.modelId ?? ''),
     systemPrompt: String(raw.systemPrompt ?? ''),
     tools,
     active: typeof raw.active === 'number' ? raw.active : 1,
-    createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
   };
 };
 
@@ -52,10 +50,10 @@ const migrateModel = (raw: Record<string, unknown>): ModelConfig => {
     provider: String(raw.provider ?? ''),
     base_url: String(raw.base_url ?? raw.baseUrl ?? ''),
     api_key: String(raw.api_key ?? raw.apiKey ?? ''),
+    api_key_from_env: typeof raw.api_key_from_env === 'number' ? raw.api_key_from_env : 0,
     temperature: typeof raw.temperature === 'number' ? raw.temperature : 0.7,
     active: typeof raw.active === 'number' ? raw.active : 1,
     description: raw.description != null ? String(raw.description) : undefined,
-    createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
   };
 };
 

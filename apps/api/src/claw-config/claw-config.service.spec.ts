@@ -27,7 +27,6 @@ describe('ClawConfigService (migration)', () => {
       JSON.stringify({
         agents: [
           {
-            id: 'agent_old_001',
             name: '旧数据',
             description: '旧描述',
             modelId: 'old-model-id',
@@ -36,7 +35,6 @@ describe('ClawConfigService (migration)', () => {
               { id: 'web_search', config: { engine: 'google' } },
               { id: 'shell_command' },
             ],
-            createdAt: 1234567890,
           },
         ],
         models: [],
@@ -54,7 +52,6 @@ describe('ClawConfigService (migration)', () => {
     expect(agent.name).toBe('旧数据');
     expect(agent.description).toBe('旧描述');
     expect(agent.systemPrompt).toBe('old prompt');
-    expect(agent.createdAt).toBe(1234567890);
   });
 
   it('keeps new-format agents unchanged', () => {
@@ -62,14 +59,12 @@ describe('ClawConfigService (migration)', () => {
       JSON.stringify({
         agents: [
           {
-            id: 'agent_new_001',
             name: '新数据',
             description: '新描述',
             model: 'qwen3.6-plus',
             systemPrompt: 'new prompt',
             tools: ['web_search', 'code_executor'],
             active: 0,
-            createdAt: 999,
           },
         ],
         models: [],
@@ -95,7 +90,7 @@ describe('ClawConfigService (migration)', () => {
   it('string tools array is kept as-is', () => {
     vi.mocked(readFileSync).mockReturnValue(
       JSON.stringify({
-        agents: [{ id: 'a', name: 'n', description: 'd', model: 'm', systemPrompt: 'p', tools: ['t1', 't2'], active: 1, createdAt: 1 }],
+        agents: [{ name: 'n', description: 'd', model: 'm', systemPrompt: 'p', tools: ['t1', 't2'], active: 1 }],
         models: [],
         tools: [],
       }),

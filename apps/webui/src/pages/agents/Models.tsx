@@ -62,6 +62,8 @@ const ModelsPage: React.FC = () => {
   const [editingModel, setEditingModel] = useState<ModelConfig | null>(null);
   // antd Form实例，管理表单校验、回填、重置
   const [form] = Form.useForm();
+  // 跟踪「从环境变量读取 API Key」开关状态，用于联动 api_key 输入框的标签与占位提示
+  const [apiKeyFromEnv, setApiKeyFromEnv] = useState(false);
 
   /**
    * 一、刷新模型列表
@@ -83,7 +85,8 @@ const ModelsPage: React.FC = () => {
   const openCreate = () => {
     setEditingModel(null);
     form.resetFields();
-    form.setFieldsValue({ temperature: 0.7, active: 1 });
+    form.setFieldsValue({ temperature: 0.7, active: 1, api_key_from_env: false });
+    setApiKeyFromEnv(false);
     setModalOpen(true);
   };
 
@@ -102,8 +105,10 @@ const ModelsPage: React.FC = () => {
       id: model.id,
       temperature: model.temperature,
       active: model.active ?? 1,
+      api_key_from_env: model.api_key_from_env === 1,
       description: model.description,
     });
+    setApiKeyFromEnv(model.api_key_from_env === 1);
     setModalOpen(true);
   };
 
@@ -115,8 +120,12 @@ const ModelsPage: React.FC = () => {
     try {
       // 触发表单校验，校验失败抛出异常进入catch
       const values = await form.validateFields();
-      // active 开关布尔值转为后端约定的 1/0
-      const payload = { ...values, active: values.active ? 1 : 0 };
+      // active / api_key_from_env 开关布尔值转为后端约定的 1/0
+      const payload = {
+        ...values,
+        active: values.active ? 1 : 0,
+        api_key_from_env: values.api_key_from_env ? 1 : 0,
+      };
       if (editingModel) {
         // 编辑模式：调用更新接口（按 name 定位）
         await updateModel(editingModel.name, payload);
@@ -190,6 +199,7 @@ const ModelsPage: React.FC = () => {
         <Row gutter={[16, 16]}>
           {models.map((model) => {
             const isActive = model.active === 1;
+            const useEnvVar = model.api_key_from_env === 1;
             return (
             <Col xs={24} sm={12} md={8} lg={6} key={model.name}>
               <Card
@@ -215,6 +225,7 @@ const ModelsPage: React.FC = () => {
                       <Tag color={isActive ? 'green' : 'default'}>
                         {isActive ? '启用' : '停用'}
                       </Tag>
+                      {useEnvVar && <Tag color="cyan">环境变量</Tag>}
                     </Space>
                   }
                   description={<Text type="secondary">{model.description || '暂无描述'}</Text>}
@@ -225,7 +236,17 @@ const ModelsPage: React.FC = () => {
                     <span>模型：<Tag color="blue">{model.id}</Tag></span>
                     <span>Temperature：<Tag color="orange">{model.temperature}</Tag></span>
                     <span>Base URL：<Text code>{model.base_url || '-'}</Text></span>
-                    <span>API Key：<Text code>{maskApiKey(model.api_key)}</Text></span>
+                    <span>
+                      API Key：
+                      {model.api_key_from_env === 1 ? (
+                        <>
+                          <Tag color="cyan">环境变量</Tag>
+                          <Text code>{model.api_key || '-'}</Text>
+                        </>
+                      ) : (
+                        <Text code>{maskApiKey(model.api_key)}</Text>
+                      )}
+                    </span>
                   </Space>
                 </Paragraph>
                 <div>
@@ -253,7 +274,17 @@ const ModelsPage: React.FC = () => {
         width={640}
         destroyOnClose
       >
-        <Form form={form} layout="vertical" preserve={false}>
+        <Form
+          form={form}
+          layout="vertical"
+          preserve={false}
+          onValuesChange={(changed) => {
+            // 监听 api_key_from_env 开关变化，同步状态以联动 api_key 输入框
+            if ('api_key_from_env' in changed) {
+              setApiKeyFromEnv(!!changed.api_key_from_env);
+            }
+          }}
+        >
           <ProFormText name="name" label="名称" placeholder="例如：GPT-4o" rules={[{ required: true, message: '请输入名称' }]} />
           <Form.Item
             name="provider"
@@ -274,9 +305,26 @@ const ModelsPage: React.FC = () => {
           </datalist>
           <ProFormText name="id" label="Model ID" placeholder="例如：gpt-4o" rules={[{ required: true, message: '请输入 Model ID' }]} />
           <ProFormText name="base_url" label="Base URL" placeholder="例如：https://api.openai.com/v1" />
-          <Form.Item name="api_key" label="API Key" rules={[{ required: true, message: '请输入 API Key' }]}>
-            {/* 密码框输入，隐藏明文 */}
-            <Input.Password placeholder="sk-..." />
+          <Form.Item
+            name="api_key"
+            label={apiKeyFromEnv ? '环境变量名' : 'API Key'}
+            rules={[{ required: true, message: apiKeyFromEnv ? '请输入环境变量名' : '请输入 API Key' }]}
+          >
+            {/* 开启环境变量模式时填变量名（明文），关闭时填真实密钥（密码框） */}
+            {apiKeyFromEnv ? (
+              <Input placeholder="例如：OPENAI_API_KEY" />
+            ) : (
+              <Input.Password placeholder="sk-..." />
+            )}
+          </Form.Item>
+          {/* API Key 来源开关：开启时 api_key 字段存储环境变量名，后端运行时从 process.env 解析 */}
+          <Form.Item
+            name="api_key_from_env"
+            label="从环境变量读取 API Key"
+            valuePropName="checked"
+            tooltip="开启后，上方输入框填写环境变量名（如 OPENAI_API_KEY），后端运行时自动从该环境变量读取真实密钥"
+          >
+            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
           </Form.Item>
           <Form.Item
             name="temperature"

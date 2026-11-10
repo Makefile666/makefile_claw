@@ -321,6 +321,12 @@ export default [
         icon: 'tool',
         component: './agents/Tools',
       },
+      {
+        path: '/agents/skills',
+        name: 'skills',
+        icon: 'thunderbolt',
+        component: './agents/Skills',
+      },
     ],
   },
   {

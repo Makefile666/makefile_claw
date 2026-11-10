@@ -5,6 +5,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { ClawConfigModule } from './claw-config/claw-config.module.js';
 import { ModelsModule } from './models/models.module.js';
+import { SkillsModule } from './skills/skills.module.js';
 import { ToolsModule } from './tools/tools.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -23,6 +24,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     AgentsModule,
     ModelsModule,
     ToolsModule,
+    SkillsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

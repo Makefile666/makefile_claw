@@ -15,5 +15,12 @@
   },
   "engines": {
     "node": ">=18"
-  }
+  },
+  "compilerOptions": {
+    "sourceMap": true,
+    "outDir": "./dist",
+    "target": "ES2020",
+    "module": "CommonJS"
+  },
+  "include": ["src/**/*"]
 }

@@ -446,7 +446,7 @@ npm run test:coverage       # 带覆盖率报告
 npm run test:update         # 更新快照
 ```
 
-测试文件放在对应组件目录下，命名为 `*.test.ts(x)`。
+测试文件放在对应组件目录下，命名为 `*.runAgent_test.ts(x)`。
 
 **Mock 数据：** 在 `mock/` 目录下创建文件：
 

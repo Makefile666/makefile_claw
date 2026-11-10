@@ -446,7 +446,7 @@ npm run test:coverage       # With coverage report
 npm run test:update         # Update snapshots
 ```
 
-Test files go next to the component, named `*.test.ts(x)`.
+Test files go next to the component, named `*.runAgent_test.ts(x)`.
 
 **Mock data:** Create files in `mock/`:
 

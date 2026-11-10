@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sam · Makefile 程序员</title>
+  <meta name="description" content="Sam 的个人官网：一名以 Makefile 为母语的开发者，专注构建系统、自动化工具链与系统编程。" />
+  <meta name="color-scheme" content="dark light" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230a0e14'/><text x='50' y='66' font-size='40' font-family='monospace' font-weight='bold' fill='%2300e19b' text-anchor='middle'>M$</text></svg>" />
+  <!-- 主题闪避脚本：DOM 解析前同步 localStorage 偏好，避免深浅色闪烁 -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('theme');
+        if (t === 'light' || t === 'dark') {
+          document.documentElement.setAttribute('data-theme', t);
+        }
+      } catch (e) { /* storage 不可用时保持默认深色 */ }
+    })();
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <!-- ===== 导航 ===== -->
+  <header class="site-header" id="siteHeader">
+    <nav class="nav container" aria-label="主导航">
+      <a href="#hero" class="nav-logo" aria-label="回到顶部">
+        <span class="logo-prompt">$</span>&nbsp;make&nbsp;<span class="logo-target">sam</span>
+      </a>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="#about" class="nav-link">关于</a></li>
+        <li><a href="#skills" class="nav-link">技能</a></li>
+        <li><a href="#projects" class="nav-link">项目</a></li>
+        <li><a href="#experience" class="nav-link">经历</a></li>
+        <li><a href="#contact" class="nav-link">联系</a></li>
+        <li>
+          <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换深浅色主题" title="切换主题">
+            <span class="theme-icon" id="themeIcon" aria-hidden="true">🌙</span>
+          </button>
+        </li>
+      </ul>
+      <button class="nav-burger" id="navBurger" type="button" aria-label="打开菜单" aria-expanded="false" aria-controls="navLinks">
+        <span></span><span></span><span></span>
+      </button>
+    </nav>
+  </header>
+
+  <main id="main">
+    <!-- ===== Hero ===== -->
+    <section class="hero" id="hero">
+      <div class="hero-bg" aria-hidden="true">
+        <div class="grid-overlay"></div>
+        <div class="glow glow-a"></div>
+        <div class="glow glow-b"></div>
+      </div>
+      <div class="container hero-inner">
+        <div class="hero-text">
+          <p class="hero-hello"><span class="pulse-dot" aria-hidden="true"></span><code>$ whoami</code></p>
+          <h1 class="hero-title">
+            我是 <span class="gradient-text">Sam</span><br />
+            <span class="typed-wrap"><span id="typed"></span><span class="caret" aria-hidden="true"></span></span>
+          </h1>
+          <p class="hero-sub">
+            一名以 <strong>Makefile</strong> 为母语的开发者 · 构建系统 / 自动化工具链 / 系统编程。<br class="br-mobile" />
+            信条：<code>talk is cheap. show me the code.</code>
+          </p>
+          <div class="hero-actions">
+            <button class="btn btn-primary" id="runMake" type="button">
+              <span class="btn-prompt">$</span>&nbsp;make run&nbsp;<span id="makeStatus" class="make-status" aria-live="polite"></span>
+            </button>
+            <a href="#contact" class="btn btn-ghost"><span class="btn-prompt">$</span>&nbsp;make contact</a>
+          </div>
+          <ul class="hero-meta" aria-label="关键数据">
+            <li><strong data-count="9">0</strong><span>年经验</span></li>
+            <li><strong data-count="42">0</strong><span>交付项目</span></li>
+            <li><strong data-count="3200">0</strong><span>GitHub Stars</span></li>
+          </ul>
+        </div>
+
+        <!-- Makefile 编辑器卡片 -->
+        <div class="hero-code">
+          <div class="code-card">
+            <div class="code-head">
+              <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+              <span class="code-file">Makefile</span>
+              <span class="code-lang">make</span>
+            </div>
+            <pre class="code-body"><code><span class="mk-comment"># ~/sam/Makefile — 本人由 GNU make 驱动</span>
+<span class="mk-directive">.PHONY</span><span class="mk-op">:</span> intro stack hire <span class="mk-comment"># 全是伪目标，人生没有产物文件</span>
+
+<span class="mk-target">intro</span><span class="mk-op">:</span>
+<span class="mk-tab"></span><span class="mk-cmd">@echo <span class="mk-str">"Hi, I'm Sam — a Makefile artisan."</span></span>
+
+<span class="mk-target">stack</span><span class="mk-op">:</span>
+<span class="mk-tab"></span><span class="mk-cmd">@echo <span class="mk-str">"C/C++ · Go · Python · Shell · CI/CD"</span></span>
+
+<span class="mk-target">hire</span><span class="mk-op">:</span> intro stack
+<span class="mk-tab"></span><span class="mk-cmd">@echo <span class="mk-str">"Open to interesting problems →"</span></span></code></pre>
+          </div>
+        </div>
+      </div>
+      <a href="#about" class="scroll-hint" aria-label="向下滚动">▾</a>
+    </section>
+
+    <!-- ===== 关于 ===== -->
+    <section class="section" id="about">
+      <div class="container">
+        <h2 class="section-title"><span class="section-num">01.</span> 关于我</h2>
+        <div class="about-grid">
+          <div class="about-text reveal">
+            <p>
+              你好，我是 Sam。别人写代码先想框架，我先想 <code>Makefile</code>：
+              依赖是什么、哪些能并行、哪一步可以缓存。9 年来，我把这份执着用在了
+              <strong>构建系统、CI/CD 流水线和系统级工具</strong>上。
+            </p>
+            <p>
+              我优化过 40 分钟缩到 3 分钟的增量构建，也让数千个 target 的巨型工程
+              保持<strong>可读、可缓存、可并行</strong>。在我看来，构建脚手架不是配角，
+              而是工程效率的<em>第一性原理</em>。
+            </p>
+            <p>
+              不写 Makefile 的时候，我在给内核调参、冲手冲咖啡，以及向每一个新同事
+              演示 <code>make -n</code> 的正确用法。
+            </p>
+            <div class="about-facts">
+              <div class="fact"><span class="fact-k">坐标</span><span class="fact-v">中国 · 上海</span></div>
+              <div class="fact"><span class="fact-k">邮箱</span><a class="fact-v" href="mailto:sam@example.dev">sam@example.dev</a></div>
+              <div class="fact"><span class="fact-k">编译器</span><span class="fact-v">GCC 13 · clang 17</span></div>
+              <div class="fact"><span class="fact-k">状态</span><span class="fact-v"><span class="pulse-dot green" aria-hidden="true"></span>接受有趣的合作</span></div>
+            </div>
+          </div>
+          <aside class="about-aside reveal">
+            <div class="terminal-card">
+              <div class="code-head"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="code-file">sam@dev: ~/life</span></div>
+              <pre class="code-body"><code><span class="t-prompt">$</span> cat life.mk
+<span class="mk-comment"># 人生也是一个有向无环图</span>
+<span class="mk-directive">.PHONY</span><span class="mk-op">:</span> life coffee build learn repeat
+
+<span class="mk-target">life</span><span class="mk-op">:</span> coffee build learn repeat
+
+<span class="mk-target">coffee</span><span class="mk-op">:</span>
+<span class="mk-tab"></span><span class="mk-cmd">@brew --quiet --no-log</span>
+
+<span class="mk-target">build</span><span class="mk-op">:</span>
+<span class="mk-tab"></span><span class="mk-cmd">$(MAKE) -C projects/ -j<span class="mk-num">8</span></span>
+
+<span class="mk-target">learn</span><span class="mk-op">:</span>
+<span class="mk-tab"></span><span class="mk-cmd">@cat TIL/*.md &gt;&gt; memory/</span>
+
+<span class="mk-target">repeat</span><span class="mk-op">:</span> life
+<span class="t-prompt">$</span> <span class="t-cursor">▊</span></code></pre>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 技能 ===== -->
+    <section class="section section-alt" id="skills">
+      <div class="container">
+        <h2 class="section-title"><span class="section-num">02.</span> 技能矩阵</h2>
+        <div class="skills-grid">
+          <article class="skill-card reveal">
+            <div class="skill-icon"><code>::</code></div>
+            <h3>构建与工程化</h3>
+            <p>Makefile 深度玩家：自动变量、模式规则、订单执行与增量缓存。构建系统选型与迁移。</p>
+            <ul class="tag-list">
+              <li>GNU Make</li><li>CMake</li><li>Bazel</li><li>Ninja</li><li>Just</li>
+            </ul>
+          </article>
+          <article class="skill-card reveal">
+            <div class="skill-icon"><code>0x</code></div>
+            <h3>系统与底层</h3>
+            <p>C/C++ 与系统编程：内存、并发、性能剖析，把每一纳秒花在刀刃上。</p>
+            <ul class="tag-list">
+              <li>C/C++</li><li>Linux</li><li>perf / valgrind</li><li>eBPF</li>
+            </ul>
+          </article>
+          <article class="skill-card reveal">
+            <div class="skill-icon"><code>&gt;_</code></div>
+            <h3>后端服务</h3>
+            <p>高并发 API 与工具服务设计，从 socket 到数据库连接池都亲手调过。</p>
+            <ul class="tag-list">
+              <li>Go</li><li>Python</li><li>PostgreSQL</li><li>Redis</li><li>gRPC</li>
+            </ul>
+          </article>
+          <article class="skill-card reveal">
+            <div class="skill-icon"><code>CD</code></div>
+            <h3>CI/CD 与 DevOps</h3>
+            <p>流水线即代码：构建、测试、发布全链路自动化，构建时长是核心 KPI。</p>
+            <ul class="tag-list">
+              <li>GitHub Actions</li><li>Docker</li><li>K8s</li><li>ccache</li><li>Grafana</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 项目 ===== -->
+    <section class="section" id="projects">
+      <div class="container">
+        <h2 class="section-title"><span class="section-num">03.</span> 精选项目</h2>
+        <div class="projects-grid">
+          <article class="project-card reveal">
+            <div class="project-top">
+              <span class="project-folder" aria-hidden="true"><code>makefile-doctor:</code></span>
+              <div class="project-links">
+                <a href="#" aria-label="makefile-doctor 源码" onclick="return false">GitHub ↗</a>
+              </div>
+            </div>
+            <p class="project-recipe"><span class="mk-cmd">@echo</span> "给 Makefile 做体检"</p>
+            <h3>Makefile Doctor</h3>
+            <p>静态分析 Makefile 的 CLI：检测 .PHONY 缺失、重复目标与 .DELETE_ON_ERROR 风险，被 300+ 仓库接入，构建事故率下降 35%。</p>
+            <ul class="tag-list"><li>Python</li><li>AST 解析</li><li>CLI</li></ul>
+          </article>
+          <article class="project-card reveal">
+            <div class="project-top">
+              <span class="project-folder" aria-hidden="true"><code>turbomake:</code></span>
+              <div class="project-links">
+                <a href="#" aria-label="turbomake 源码" onclick="return false">GitHub ↗</a>
+              </div>
+            </div>
+            <p class="project-recipe"><span class="mk-cmd">$(MAKE)</span> -j$(shell nproc)</p>
+            <h3>TurboMake</h3>
+            <p>基于依赖图的分布式构建缓存：内容寻址 + 远程缓存命中，monorepo 全量构建从 41 分钟降到 6 分钟。</p>
+            <ul class="tag-list"><li>Go</li><li>内容寻址</li><li>gRPC</li></ul>
+          </article>
+          <article class="project-card reveal">
+            <div class="project-top">
+              <span class="project-folder" aria-hidden="true"><code>mk-snippets:</code></span>
+              <div class="project-links">
+                <a href="#" aria-label="mk-snippets 源码" onclick="return false">GitHub ↗</a>
+              </div>
+            </div>
+            <p class="project-recipe"><span class="mk-cmd">include</span> mk/*.mk</p>
+            <h3>mk-snippets</h3>
+            <p>可 include 的 Makefile 模板库：Docker、Go、Python、LaTeX 一行接入，npm + GitHub 双通道分发，周下载 3k+。</p>
+            <ul class="tag-list"><li>Makefile</li><li>Shell</li><li>开源库</li></ul>
+          </article>
+        </div>
+        <p class="projects-more reveal">
+          <a class="link-arrow" href="https://github.com/" target="_blank" rel="noopener noreferrer"><code>$ ls ~/projects | wc -l</code> 在 GitHub 查看完整列表 →</a>
+        </p>
+      </div>
+    </section>
+
+    <!-- ===== 经历 ===== -->
+    <section class="section section-alt" id="experience">
+      <div class="container">
+        <h2 class="section-title"><span class="section-num">04.</span> 工作经历</h2>
+        <ol class="timeline">
+          <li class="timeline-item reveal">
+            <div class="timeline-card">
+              <span class="timeline-date">2022 — 至今</span>
+              <h3>构建系统专家 · 某云服务公司</h3>
+              <p>主导 2000+ target 的巨型工程从递归 Make 迁移到模块化 Make + 远程缓存体系，CI 时长缩短 72%；建立构建性能预算与告警机制。</p>
+            </div>
+          </li>
+          <li class="timeline-item reveal">
+            <div class="timeline-card">
+              <span class="timeline-date">2019 — 2022</span>
+              <h3>系统工程师 · 某基础软件公司</h3>
+              <p>负责存储引擎的构建与发布链路：交叉编译矩阵、制品签名与回滚机制；编写 300+ 条 Make 目标，覆盖测试 / 基准 / 发布全流程。</p>
+            </div>
+          </li>
+          <li class="timeline-item reveal">
+            <div class="timeline-card">
+              <span class="timeline-date">2017 — 2019</span>
+              <h3>初级开发工程师 · 某创业团队</h3>
+              <p>从 0 到 1 搭建产品与 CI 流水线，第一次用 20 行 Makefile 替掉 800 行 Shell 脚本，从此走上「构建系统」这条不归路。</p>
+            </div>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ===== 联系 ===== -->
+    <section class="section contact" id="contact">
+      <div class="container contact-inner">
+        <h2 class="section-title"><span class="section-num">05.</span> 联系我</h2>
+        <p class="contact-lead reveal">
+          有棘手的构建问题、工具链想法，或者只是一个招呼 —— 邮箱永远在线，通常 24 小时内回复。
+        </p>
+        <a class="btn btn-primary btn-lg reveal" href="mailto:sam@example.dev"><span class="btn-prompt">$</span>&nbsp;make contact&nbsp;<span class="make-status ok">[OK]</span></a>
+        <ul class="contact-links reveal">
+          <li><a href="https://github.com/" target="_blank" rel="noopener noreferrer">GitHub</a></li>
+          <li><a href="#" onclick="return false">掘金</a></li>
+          <li><a href="#" onclick="return false">知乎</a></li>
+          <li><a href="#" onclick="return false">Twitter / X</a></li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== 页脚 ===== -->
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <p><code>.PHONY: sam</code> · © 2025 Sam · Designed &amp; built with <span aria-hidden="true">☕</span> and <code>make</code></p>
+      <p class="footer-meta"><code>all: $(TARGETS) ;  while(alive) {{ keepLearning(); }}</code></p>
+    </div>
+  </footer>
+
+  <button class="back-to-top" id="backToTop" type="button" aria-label="回到顶部" title="回到顶部">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+      <path d="M12 5l-7 7h4v7h6v-7h4z" fill="currentColor"/>
+    </svg>
+  </button>
+
+  <!-- 彩蛋 Toast -->
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-hidden="true"></div>
+
+  <script src="js/main.js" defer></script>
+</body>
+</html>

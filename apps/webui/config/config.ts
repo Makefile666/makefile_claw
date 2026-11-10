@@ -47,6 +47,12 @@ export default defineConfig({
    */
   hash: true,
 
+  /**
+   * @name esbuild 压缩 IIFE
+   * @description 解决 esbuild helper 冲突问题，避免构建时 esbuildHelperChecker 报错
+   */
+  esbuildMinifyIIFE: true,
+
   publicPath: PUBLIC_PATH,
 
   /**

@@ -4,6 +4,7 @@ import type {
   AgentConfig,
   ClawConfig,
   ModelConfig,
+  SkillConfig,
   ToolConfig,
 } from './types';
 /**
@@ -253,6 +254,73 @@ export async function updateTool(name: string, patch: Pick<ToolConfig, 'active'>
   const res = await request<{ code: number; data: ToolConfig; msg: string }>(
     `${BASE_URL}/tools/${name}`,
     { method: 'PUT', data: patch },
+  );
+  return res.data;
+}
+
+// ---------- Skills 增删改查【独立 REST 接口】 ----------
+// 对接后端 /api/skills，技能以 SKILL.md 文件形式存放在 ~/.makefile_claw/skills/<name>/
+/**
+ * 获取所有已安装技能列表
+ * GET /api/skills
+ */
+export async function listSkills(): Promise<SkillConfig[]> {
+  const res = await request<{ code: number; data: SkillConfig[]; msg: string }>(
+    `${BASE_URL}/skills`,
+    { method: 'GET' },
+  );
+  return res.data;
+}
+
+/**
+ * 获取单个技能详情（含正文内容）
+ * GET /api/skills/:name
+ */
+export async function getSkill(name: string): Promise<SkillConfig> {
+  const res = await request<{ code: number; data: SkillConfig; msg: string }>(
+    `${BASE_URL}/skills/${name}`,
+    { method: 'GET' },
+  );
+  return res.data;
+}
+
+/**
+ * 通过 skills.sh 安装命令安装技能
+ * POST /api/skills/install
+ * @param command skills.sh 站点提供的安装命令，例如 npx skills add owner/repo
+ */
+export async function installSkill(command: string): Promise<SkillConfig> {
+  const res = await request<{ code: number; data: SkillConfig; msg: string }>(
+    `${BASE_URL}/skills/install`,
+    { method: 'POST', data: { command } },
+  );
+  return res.data;
+}
+
+/**
+ * 删除技能
+ * DELETE /api/skills/:name
+ */
+export async function deleteSkill(name: string): Promise<void> {
+  await request<{ code: number; data: null; msg: string }>(
+    `${BASE_URL}/skills/${name}`,
+    { method: 'DELETE' },
+  );
+}
+
+/**
+ * 切换技能启用状态
+ * PATCH /api/skills/:name/active
+ * @param name 技能名称
+ * @param active 是否启用
+ */
+export async function toggleSkillActive(
+  name: string,
+  active: boolean,
+): Promise<SkillConfig> {
+  const res = await request<{ code: number; data: SkillConfig; msg: string }>(
+    `${BASE_URL}/skills/${name}/active`,
+    { method: 'PATCH', data: { active } },
   );
   return res.data;
 }

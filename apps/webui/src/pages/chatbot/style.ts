@@ -15,6 +15,19 @@ export const useStyles = createStyles(({ css, token }) => ({
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    /* 禁止选中会话名称文字，切换会话时不会出现高亮选区 */
+    user-select: none;
+
+    /* 隐藏 Conversations 内部滚动条，避免抖动 */
+    .ant-conversations,
+    .ant-conversations-list {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    .ant-conversations::-webkit-scrollbar,
+    .ant-conversations-list::-webkit-scrollbar {
+      display: none;
+    }
   `,
 
   main: css`
@@ -36,6 +49,14 @@ export const useStyles = createStyles(({ css, token }) => ({
 
     > * {
       width: 100%;
+    }
+
+    /* 隐藏滚动条，消除滚动条出现/消失导致的页面抖动 */
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE / Edge */
+
+    &::-webkit-scrollbar {
+      display: none; /* Chrome / Safari */
     }
   `,
 

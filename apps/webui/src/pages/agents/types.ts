@@ -43,6 +43,35 @@ export interface ClawConfig {
   tools: ToolConfig[];
 }
 
+/**
+ * Skill 技能配置
+ * 对应后端 ~/.makefile_claw/skills/<name>/SKILL.md 解析结果
+ */
+export interface SkillConfig {
+  /** 技能英文名称（唯一键，即技能文件夹名） */
+  name: string;
+  /** 技能简要描述 */
+  description: string;
+  /** 技能版本号（可选） */
+  version?: string;
+  /** 允许使用的工具列表（可选） */
+  allowedTools?: string[];
+  /** 技能正文内容（SKILL.md 中 --- 之后的 markdown 规范文档） */
+  content: string;
+  /** SKILL.md 所在文件夹绝对路径 */
+  skillDir: string;
+  /** SKILL.md 文件绝对路径 */
+  skillPath: string;
+  /** 技能来源（GitHub repo 地址或 owner/repo） */
+  source?: string;
+  /** 安装时间（ISO 字符串） */
+  installTime?: string;
+  /** 安装时使用的命令 */
+  installCommand?: string;
+  /** 是否启用（true-启用，false-停用），停用后不会注入到 Agent */
+  active: boolean;
+}
+
 export const BUILTIN_TOOLS: ToolConfig[] = [
   {
     name: 'web_search',

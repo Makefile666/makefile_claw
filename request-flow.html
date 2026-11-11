@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Makefile Claw - 请求链路运行流程图</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #273449;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-2: #a78bfa;
+    --green: #34d399;
+    --orange: #fb923c;
+    --pink: #f472b6;
+    --border: #334155;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+  }
+  header {
+    padding: 40px 32px 24px;
+    background: linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 {
+    margin: 0 0 8px;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  header p {
+    margin: 0;
+    color: #cbd5e1;
+    font-size: 14px;
+  }
+  nav {
+    display: flex;
+    gap: 12px;
+    padding: 16px 32px;
+    background: var(--panel);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    border-bottom: 1px solid var(--border);
+  }
+  nav a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 14px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    background: var(--panel-2);
+    transition: background 0.2s;
+  }
+  nav a:hover { background: #334155; }
+  main { padding: 32px; max-width: 1400px; margin: 0 auto; }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    margin-bottom: 32px;
+  }
+  h2 {
+    margin: 0 0 6px;
+    font-size: 22px;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h2 .badge {
+    font-size: 12px;
+    background: var(--accent);
+    color: #0f172a;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-weight: 700;
+  }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  h3 {
+    color: var(--accent-2);
+    font-size: 17px;
+    margin: 28px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .mermaid {
+    background: #0b1220;
+    border-radius: 10px;
+    padding: 20px;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    text-align: center;
+  }
+  .stage-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin: 16px 0;
+  }
+  .stage {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    border-left: 4px solid var(--accent);
+  }
+  .stage.fe { border-left-color: var(--green); }
+  .stage.be { border-left-color: var(--orange); }
+  .stage.ai { border-left-color: var(--pink); }
+  .stage h4 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    color: var(--accent);
+  }
+  .stage.fe h4 { color: var(--green); }
+  .stage.be h4 { color: var(--orange); }
+  .stage.ai h4 { color: var(--pink); }
+  .stage p { margin: 0; font-size: 13px; color: var(--muted); }
+  .stage code {
+    background: #0f172a;
+    color: var(--accent);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin: 16px 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  ul.api-list { list-style: none; padding: 0; margin: 0; }
+  ul.api-list li {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+  .method {
+    display: inline-block;
+    min-width: 62px;
+    text-align: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    margin-right: 10px;
+  }
+  .get { background: #1d4ed8; color: #fff; }
+  .post { background: #15803d; color: #fff; }
+  .put { background: #b45309; color: #fff; }
+  .patch { background: #7e22ce; color: #fff; }
+  .del { background: #b91c1c; color: #fff; }
+  footer {
+    text-align: center;
+    padding: 24px;
+    color: var(--muted);
+    font-size: 12px;
+    border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🤖 Makefile Claw · 请求链路运行流程图</h1>
+  <p>AI 助手聊天（含技能）全链路 + Agent / Skills 菜单 CRUD 链路 · 浏览器 → 前端 → 后端 → AI → 响应</p>
+</header>
+
+<nav>
+  <a href="#chat-flow">① AI 助手聊天链路</a>
+  <a href="#chat-detail">② 聊天链路分阶段详解</a>
+  <a href="#agent-menu">③ Agent 菜单 CRUD 链路</a>
+  <a href="#skills-menu">④ Skills 菜单链路</a>
+</nav>
+
+<main>
+
+<!-- ============================================ -->
+<!-- 链路一：AI 助手聊天（含技能） -->
+<!-- ============================================ -->
+<section id="chat-flow">
+  <h2>① AI 助手聊天链路（选中技能）<span class="badge">核心链路</span></h2>
+  <p class="subtitle">
+    用户在 AI 助手页面输入消息并选择技能 → 浏览器发送请求 → 前端处理 → 后端接收 → 创建 Agent 调用大模型 → SSE 流式返回
+  </p>
+
+  <div class="legend">
+    <span><span class="dot" style="background:#34d399"></span> 前端 Frontend</span>
+    <span><span class="dot" style="background:#fb923c"></span> 后端 Backend</span>
+    <span><span class="dot" style="background:#f472b6"></span> AI 端 Agent / LLM</span>
+    <span><span class="dot" style="background:#38bdf8"></span> 持久化存储</span>
+  </div>
+
+  <div class="mermaid">
+flowchart TB
+    subgraph FE["🖥️ 浏览器前端 (apps/webui)"]
+        direction TB
+        U[/"👤 用户输入消息\n选择 Agent + Skills"/]
+        SM["sendMessage(content)\nchatbot/index.tsx"]
+        XCHAT["useXChat onRequest()\n@ant-design/x-sdk"]
+        CF["customFetch(getAgent, getSkills)\nchatbot/service.ts"]
+        REQ["GET /models-streaming\n?input=&chatId=&agent=&skills="]
+        SSE["SSE 流式接收\nOpenAIChatProvider"]
+        PARSE["parser 拆分 think / node\n渲染 Bubble + ThoughtChain"]
+    end
+
+    subgraph BE["⚙️ 后端 NestJS (apps/api)"]
+        direction TB
+        CTRL["ModelsLangchainController\nGET /models-streaming"]
+        SKILLS["SkillsService.findOne()\n加载 SKILL.md 正文"]
+        AGENT["createMakefileClawAgent()\npackages/agent-core"]
+        STREAM["agent.stream()\nstreamMode:'messages'"]
+        EMIT["emit() 推送 SSE 分片\ndata: {choices, sessionId}"]
+        DONE["data: [DONE] + res.end()"]
+        SAVE["FileSaver 落盘\n~/.makefile_claw/memory/threadId.json"]
+    end
+
+    subgraph AI["🧠 AI 端 (deepagents + LLM)"]
+        direction TB
+        DEEP["createDeepAgent\n模型 + SystemPrompt + 工具"]
+        LOOP["Agent 循环:\n思考 → 工具调用 → 结果回灌 → 回答"]
+        LLM["ChatOpenAI 流式调用\n(base_url / api_key)"]
+        TOOLS["文件 / Shell / Todo 工具\nLocalShellBackend"]
+    end
+
+    subgraph STORE["💾 持久化"]
+        MEM["~/.makefile_claw/memory/\n<threadId>.json 检查点"]
+        CFG["~/.makefile_claw/\nmakefile_claw.json 配置"]
+        SKDIR["~/.makefile_claw/skills/\n<name>/SKILL.md"]
+    end
+
+    U --> SM --> XCHAT --> CF --> REQ
+    REQ -->|"HTTP GET (SSE)"| CTRL
+    CTRL -->|"skillNames"| SKILLS
+    SKILLS -->|"读取"| SKDIR
+    SKILLS -->|"skillsContent"| AGENT
+    CTRL -->|"agentName, threadId"| AGENT
+    AGENT -->|"读取配置"| CFG
+    AGENT -->|"创建"| DEEP
+    DEEP --> LOOP
+    LOOP --> LLM
+    LOOP --> TOOLS
+    DEEP --> STREAM
+    STREAM -->|"分片"| EMIT
+    EMIT -->|"text/event-stream"| SSE
+    STREAM -->|"结束"| DONE
+    DONE --> SSE
+    DONE --> SAVE
+    SAVE -->|"写入"| MEM
+    SSE --> PARSE
+
+    style FE fill:#064e3b,stroke:#34d399
+    style BE fill:#7c2d12,stroke:#fb923c
+    style AI fill:#831843,stroke:#f472b6
+    style STORE fill:#0c4a6e,stroke:#38bdf8
+  </div>
+</section>
+
+<!-- ============================================ -->
+<!-- 聊天链路分阶段详解 -->
+<!-- ============================================ -->
+<section id="chat-detail">
+  <h2>② 聊天链路分阶段详解</h2>
+  <p class="subtitle">按「前端 → 后端 → AI → 返回」四个阶段拆解每一步的关键代码与数据</p>
+
+  <h3>阶段 1 · 前端发起请求</h3>
+  <div class="stage-grid">
+    <div class="stage fe">
+      <h4>1.1 用户交互</h4>
+      <p>在 <code>chatbot/index.tsx</code> 选择 Agent（单选）与 Skills（多选），输入消息后 <code>Sender.onSubmit</code> 触发 <code>sendMessage(content)</code>。</p>
+    </div>
+    <div class="stage fe">
+      <h4>1.2 组装请求</h4>
+      <p><code>sendMessage</code> 取 <code>chatId = threadIdMapRef.current[activeKey]</code>（新会话为空），调用 <code>onRequest({ messages, chatId })</code>。</p>
+    </div>
+    <div class="stage fe">
+      <h4>1.3 改写为 GET</h4>
+      <p><code>customFetch</code> 取最后一条 user 消息为 <code>input</code>，拼 <code>agent</code>、<code>skills</code>（逗号分隔），发起 <code>GET /models-streaming?input=&chatId=&agent=&skills=</code>。</p>
+    </div>
+  </div>
+
+  <h3>阶段 2 · 后端处理与 Agent 创建</h3>
+  <div class="stage-grid">
+    <div class="stage be">
+      <h4>2.1 入口校验</h4>
+      <p><code>ModelsLangchainController.test()</code> 校验 <code>input</code>，设置 SSE 响应头（<code>text/event-stream</code>、<code>no-cache</code>、<code>keep-alive</code>），<code>flushHeaders</code> 立即推送。</p>
+    </div>
+    <div class="stage be">
+      <h4>2.2 加载技能</h4>
+      <p>遍历 <code>skillNames</code>，<code>skillsService.findOne(name)</code> 读取 <code>~/.makefile_claw/skills/&lt;name&gt;/SKILL.md</code>，过滤 <code>active</code>，重写路径引用后拼接为 <code>skillsContent</code>。</p>
+    </div>
+    <div class="stage be">
+      <h4>2.3 会话 ID</h4>
+      <p><code>threadId = chatId || randomUUID()</code>，<code>sessionId = threadId</code>。首次对话生成新 UUID，后续复用 chatId 从检查点恢复上下文。</p>
+    </div>
+    <div class="stage be">
+      <h4>2.4 创建 Agent</h4>
+      <p><code>createMakefileClawAgent(agentName, threadId, undefined, skillsContent)</code> 内部：<br/>
+      • <code>FileSaver</code> 绑定 <code>~/.makefile_claw/memory/&lt;threadId&gt;.json</code><br/>
+      • <code>readConfigByAgentName</code> 读 agent 配置 → <code>readConfigByModelName</code> 读模型配置 → <code>initStreamModel</code> 创建 <code>ChatOpenAI</code><br/>
+      • <code>LocalShellBackend</code> 提供文件/Shell 工具<br/>
+      • 组装 <code>finalSystemPrompt</code> = systemPrompt + 终端说明 + skillsContent<br/>
+      • <code>createDeepAgent</code> 编译 Agent（含 todoList + filesystem middleware）</p>
+    </div>
+  </div>
+
+  <h3>阶段 3 · AI 端流式推理</h3>
+  <div class="stage-grid">
+    <div class="stage ai">
+      <h4>3.1 发起流式调用</h4>
+      <p><code>agent.stream({ messages:[{role:'user',content:input}] }, { streamMode:'messages', configurable:{thread_id}, recursionLimit:100, signal })</code>。超时：总 300s / 无活动 90s。</p>
+    </div>
+    <div class="stage ai">
+      <h4>3.2 Agent 循环</h4>
+      <p>deepagents 内部循环：模型输出 <code>reasoning_content</code>（思考）→ 决定调用工具（<code>tool_calls</code>）→ 执行文件/Shell/Todo 工具 → 结果回灌 → 模型输出最终 <code>content</code>（回答）。</p>
+    </div>
+    <div class="stage ai">
+      <h4>3.3 分片结构</h4>
+      <p>每个 chunk 为 <code>[messageChunk, metadata]</code>，含：<br/>
+      • <code>additional_kwargs.reasoning_content</code> — 思考<br/>
+      • <code>content</code> — 正文 / 工具结果<br/>
+      • <code>tool_calls</code> — 工具调用（name/args）<br/>
+      • <code>tool_call_id</code> — 工具结果关联 ID</p>
+    </div>
+  </div>
+
+  <h3>阶段 4 · SSE 返回与前端渲染</h3>
+  <div class="stage-grid">
+    <div class="stage be">
+      <h4>4.1 封装 SSE 分片</h4>
+      <p><code>emit(text)</code> 输出 <code>data: {"choices":[{"delta":{"content":"..."}}],"sessionId":"..."}</code>。<br/>
+      思考包 <code>&lt;node title="思考"&gt;</code>，工具调用包 <code>&lt;node title="执行命令 execute"&gt;</code>，工具结果包 <code>&lt;node title="工具结果 execute"&gt;</code>，全部嵌在 <code>&lt;think&gt;...&lt;/think&gt;</code> 内，正文在容器外。</p>
+    </div>
+    <div class="stage be">
+      <h4>4.2 流结束</h4>
+      <p>正常结束输出 <code>data: [DONE]</code> + <code>res.end()</code>。<code>finally</code> 中 <code>close()</code> 关闭后端，清空 FileSaver 防抖定时器并立即落盘到 <code>memory/&lt;threadId&gt;.json</code>。异常时下发错误节点分片再 <code>[DONE]</code>。</p>
+    </div>
+    <div class="stage fe">
+      <h4>4.3 前端解析渲染</h4>
+      <p><code>OpenAIChatProvider</code> 的 <code>onUpdate</code> 回调提取 <code>sessionId</code> → <code>onSessionId</code> 写入 <code>threadIdMapRef</code>。<code>parser</code> 用正则拆分 <code>&lt;think&gt;</code> 块与 <code>&lt;node&gt;</code> 节点，<code>ThoughtChainView</code> 渲染思维链，<code>Bubble.List</code> 渲染正文（<code>XMarkdown</code> + 打字机动画）。</p>
+    </div>
+  </div>
+
+  <h3>关键文件索引</h3>
+  <ul class="api-list">
+    <li><strong>前端聊天页：</strong><code>apps/webui/src/pages/chatbot/index.tsx</code> — UI、状态、sendMessage、parser</li>
+    <li><strong>前端服务：</strong><code>apps/webui/src/pages/chatbot/service.ts</code> — createChatProvider、customFetch、SSE 解析</li>
+    <li><strong>后端流式控制器：</strong><code>apps/api/src/models/models.langchain.controller.ts</code> — SSE 接口、技能注入、分片下发</li>
+    <li><strong>Agent 工厂：</strong><code>packages/agent-core/src/index.ts</code> — createMakefileClawAgent</li>
+    <li><strong>模型初始化：</strong><code>packages/agent-core/src/agents.ts</code> — initStreamModel (ChatOpenAI)</li>
+    <li><strong>配置读取：</strong><code>packages/agent-core/src/readConfig.ts</code> — readConfigByAgentName / readConfigByModelName</li>
+    <li><strong>技能服务：</strong><code>apps/api/src/skills/skills.service.ts</code> — SKILL.md 解析、安装、启停</li>
+  </ul>
+</section>
+
+<!-- ============================================ -->
+<!-- 链路二：Agent 菜单 CRUD -->
+<!-- ============================================ -->
+<section id="agent-menu">
+  <h2>③ Agent 菜单 CRUD 链路</h2>
+  <p class="subtitle">Agents 管理页面（列表 / 新建 / 编辑 / 删除 / 启停）的完整请求链路</p>
+
+  <div class="mermaid">
+flowchart LR
+    subgraph PAGE["🖥️ Agents.tsx 页面"]
+        direction TB
+        MOUNT["useEffect → reload()"]
+        LIST["列表展示 agents / models / tools"]
+        CREATE["openCreate → 表单 → handleSubmit"]
+        EDIT["openEdit → 表单 → handleSubmit"]
+        DEL["Popconfirm → handleDelete"]
+        TOG["Switch → handleToggleActive"]
+    end
+
+    subgraph SVC["📡 service.ts"]
+        direction TB
+        GETCFG["getMakefileClawAgentsConfig()"]
+        CA["createAgent(agent)"]
+        UA["updateAgent(name, patch)"]
+        DA["deleteAgent(name)"]
+    end
+
+    subgraph API["⚙️ 后端 /api/agents"]
+        direction TB
+        ALL["GET / → findAll"]
+        POST["POST / → create"]
+        PUT["PUT /:name → update"]
+        DELAPI["DELETE /:name → remove"]
+    end
+
+    subgraph DATA["💾 持久化"]
+        JSON["~/.makefile_claw/makefile_claw.json"]
+    end
+
+    MOUNT --> GETCFG
+    GETCFG -->|"GET /api/claw/config"| CFGAPI["ClawConfigController\ngetConfig"]
+    CFGAPI --> JSON
+    LIST
+
+    CREATE --> CA -->|"POST /api/agents"| POST
+    EDIT --> UA -->|"PUT /api/agents/:name"| PUT
+    DEL --> DA -->|"DELETE /api/agents/:name"| DELAPI
+    TOG --> UA
+
+    ALL -->|"AgentsService.findAll"| ASVC["AgentsService"]
+    POST --> ASVC
+    PUT --> ASVC
+    DELAPI --> ASVC
+    ASVC -->|"readConfig / saveConfig"| JSON
+
+    style PAGE fill:#064e3b,stroke:#34d399
+    style SVC fill:#064e3b,stroke:#34d399
+    style API fill:#7c2d12,stroke:#fb923c
+    style DATA fill:#0c4a6e,stroke:#38bdf8
+  </div>
+
+  <h3>接口清单</h3>
+  <ul class="api-list">
+    <li><span class="method get">GET</span><code>/api/claw/config</code> — 获取完整配置（agents + models + tools），Agents 页一次性加载</li>
+    <li><span class="method get">GET</span><code>/api/agents</code> — Agent 列表（<code>AgentsService.findAll</code>）</li>
+    <li><span class="method post">POST</span><code>/api/agents</code> — 新建 Agent（name 唯一，冲突抛 409）</li>
+    <li><span class="method put">PUT</span><code>/api/agents/:name</code> — 更新 Agent（含启停 active 0/1）</li>
+    <li><span class="method del">DELETE</span><code>/api/agents/:name</code> — 删除 Agent</li>
+  </ul>
+
+  <h3>数据流说明</h3>
+  <div class="stage-grid">
+    <div class="stage fe">
+      <h4>页面加载</h4>
+      <p><code>reload()</code> 调用 <code>getMakefileClawAgentsConfig()</code> → <code>GET /api/claw/config</code>，一次拿到 agents、models、tools 三组数据，分别用于列表渲染和表单下拉。</p>
+    </div>
+    <div class="stage fe">
+      <h4>新建 / 编辑</h4>
+      <p>弹窗表单校验通过后，提取 <code>model.value</code>、<code>tools[].value</code>，组装 payload。编辑走 <code>updateAgent(name, payload)</code>，新建走 <code>createAgent(payload)</code>，成功后 <code>reload()</code> 刷新。</p>
+    </div>
+    <div class="stage be">
+      <h4>后端读写</h4>
+      <p><code>AgentsService</code> 通过 <code>ClawConfigService.readConfig()/saveConfig()</code> 读写 <code>~/.makefile_claw/makefile_claw.json</code> 的 <code>agents</code> 数组，name 为唯一标识。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================ -->
+<!-- 链路三：Skills 菜单 -->
+<!-- ============================================ -->
+<section id="skills-menu">
+  <h2>④ Skills 菜单链路</h2>
+  <p class="subtitle">技能管理（列表 / 安装 / 启停 / 删除）+ 聊天页技能选择器的数据来源</p>
+
+  <div class="mermaid">
+flowchart LR
+    subgraph SP["🖥️ Skills.tsx / chatbot"]
+        LIST2["技能列表"]
+        INST["安装命令输入框"]
+        TOG2["启用开关"]
+        DEL2["删除"]
+        SEL["聊天页 Skills 多选器"]
+    end
+
+    subgraph SVC2["📡 service.ts"]
+        LS["listSkills()"]
+        INST2["installSkill(command)"]
+        TG["toggleSkillActive(name, active)"]
+        DEL3["deleteSkill(name)"]
+    end
+
+    subgraph API2["⚙️ 后端 /api/skills"]
+        G1["GET / → findAll"]
+        P1["POST /install → install"]
+        P2["PATCH /:name/active → toggleActive"]
+        D1["DELETE /:name → remove"]
+    end
+
+    subgroup SK["💾 技能存储"]
+        DIR["~/.makefile_claw/skills/<name>/\nSKILL.md + skill.meta.json"]
+        SHELL["pnpm dlx skills add ...\n(或 git clone 兜底)"]
+    end
+
+    LIST2 --> LS -->|"GET /api/skills"| G1
+    INST --> INST2 -->|"POST /api/skills/install"| P1
+    TOG2 --> TG -->|"PATCH /api/skills/:name/active"| P2
+    DEL2 --> DEL3 -->|"DELETE /api/skills/:name"| D1
+    SEL --> LS
+
+    G1 -->|"扫描目录"| DIR
+    P1 -->|"执行安装"| SHELL
+    SHELL --> DIR
+    P2 -->|"写 meta.json"| DIR
+    D1 -->|"rmSync"| DIR
+
+    style SP fill:#064e3b,stroke:#34d399
+    style SVC2 fill:#064e3b,stroke:#34d399
+    style API2 fill:#7c2d12,stroke:#fb923c
+    style SK fill:#0c4a6e,stroke:#38bdf8
+  </div>
+
+  <h3>接口清单</h3>
+  <ul class="api-list">
+    <li><span class="method get">GET</span><code>/api/skills</code> — 扫描 <code>~/.makefile_claw/skills/</code> 下所有 <code>SKILL.md</code>，返回技能列表</li>
+    <li><span class="method get">GET</span><code>/api/skills/:name</code> — 单个技能详情（含正文 content）</li>
+    <li><span class="method post">POST</span><code>/api/skills/install</code> — 通过 <code>pnpm dlx skills add</code> 安装，失败回退 git clone 镜像</li>
+    <li><span class="method patch">PATCH</span><code>/api/skills/:name/active</code> — 切换启用状态（写入 <code>skill.meta.json</code>）</li>
+    <li><span class="method del">DELETE</span><code>/api/skills/:name</code> — 删除技能文件夹</li>
+  </ul>
+
+  <h3>技能如何注入到对话</h3>
+  <div class="stage-grid">
+    <div class="stage fe">
+      <h4>聊天页选择</h4>
+      <p>聊天页挂载时 <code>listSkills()</code> 加载已安装技能到多选器，用户勾选后 <code>selectedSkills</code> 持久化到 localStorage（按会话隔离）。发送时 <code>getSkills()</code> 返回当前数组。</p>
+    </div>
+    <div class="stage be">
+      <h4>后端加载正文</h4>
+      <p>流式接口收到 <code>skills</code> 参数后，逐个 <code>skillsService.findOne(name)</code> 读取 <code>SKILL.md</code> 的正文 content，过滤已停用，重写 <code>${CLAUDE_PLUGIN_ROOT}</code> 等路径引用，拼接成 <code>skillsContent</code>。</p>
+    </div>
+    <div class="stage ai">
+      <h4>注入 System Prompt</h4>
+      <p><code>createMakefileClawAgent</code> 将 <code>skillsContent</code> 追加到 <code>finalSystemPrompt</code> 末尾（「【可用技能 Skills】」段落），Agent 在推理时即可遵循技能规范执行任务。</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  Makefile Claw · 请求链路运行流程图 · 生成时间 2026-11-11
+</footer>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      background: '#0b1220',
+      primaryColor: '#1e293b',
+      primaryTextColor: '#e2e8f0',
+      primaryBorderColor: '#38bdf8',
+      lineColor: '#64748b',
+      secondaryColor: '#273449',
+      tertiaryColor: '#334155',
+      fontSize: '13px',
+    },
+    flowchart: { curve: 'basis', padding: 16, nodeSpacing: 40, rankSpacing: 50 },
+  });
+</script>
+</body>
+</html>

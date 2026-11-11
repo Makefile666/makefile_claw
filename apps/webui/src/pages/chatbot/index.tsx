@@ -1,6 +1,7 @@
+import { useSearchParams } from '@umijs/max';
 import { UserOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
-import { Bubble, Conversations, Sender, Think, XProvider } from '@ant-design/x';
+import { Bubble, Conversations, Sender, ThoughtChain, XProvider } from '@ant-design/x';
 import type {
   BubbleItemType,
   BubbleListProps,
@@ -16,7 +17,7 @@ import React, {
   useState,
 } from 'react';
 
-import type { ConversationItem, ParsedMessage } from './data';
+import type { ConversationItem, ParsedMessage, ThoughtNode } from './data';
 import {
   createChatProvider,
   fetchSessions,
@@ -32,6 +33,48 @@ import { useStyles } from './style';
 
 // 欢迎语，首页打字机效果文案
 const WELCOME_TEXT = '🤖 你好，有什么可以帮你？';
+
+// 持久化“每个会话对应的 Agent”映射：Record<conversationKey, agentName>
+const CONVERSATION_AGENTS_STORAGE_KEY = 'chatbot_conversation_agents';
+
+// 持久化“每个会话对应的 Skills”映射：Record<conversationKey, string[]>
+const CONVERSATION_SKILLS_STORAGE_KEY = 'chatbot_conversation_skills';
+
+/**
+ * 从 localStorage 读取每个会话对应的 Agent 映射
+ * 读取失败 / 格式非法时返回空对象
+ */
+const readStoredAgentMap = (): Record<string, string> => {
+  try {
+    const raw = localStorage.getItem(CONVERSATION_AGENTS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, string>;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+};
+
+/**
+ * 从 localStorage 读取每个会话对应的 Skills 映射
+ * 读取失败 / 格式非法时返回空对象
+ */
+const readStoredSkillsMap = (): Record<string, string[]> => {
+  try {
+    const raw = localStorage.getItem(CONVERSATION_SKILLS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, string[]>;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+};
 
 /**
  * 格式化会话标签：显示最后活跃时间
@@ -108,14 +151,20 @@ const TypewriterTitle: React.FC = () => {
 /**
  * 消息解析器 parser
  * useXChat 的 parser 钩子：每收到一条 AI 分片消息时执行
- * 核心职责：拆分 思考标签 和 正式回答内容
+ * 核心职责：拆分 思维链标签（<think> + <node>） 和 正式回答内容
  *
- * 支持多步骤 Agent 执行：同一条消息中可能包含多个 <think>...</think> 块
- * （每个步骤一段思考），解析器会提取所有思考块合并为 thinkContent，
- * 并从正文中移除这些思考块，剩余的正文（含工具调用/结果 markdown）交由 XMarkdown 渲染。
+ * 思维链 node 协议（与后端约定）：
+ * <think>
+ *   <node title="思考">推理文本</node>
+ *   <node title="执行命令 execute">参数</node>
+ *   <node title="工具结果 execute">结果</node>
+ * </think>
+ * 正文……
+ * 解析后生成 ThoughtNode[]（title/content/status），交给 ThoughtChain 组件渲染。
+ * status：已闭合=success（title 为「错误」时=error），未闭合（流式中）=loading。
  *
  * @param message SDK 返回原始消息对象
- * @returns ParsedMessage 拆分后的结构，区分 thinkContent / content
+ * @returns ParsedMessage 拆分后的结构，区分 thoughtItems / content
  */
 const parser = (message: { content: string; role: string }): ParsedMessage => {
   const { content, role } = message;
@@ -124,6 +173,7 @@ const parser = (message: { content: string; role: string }): ParsedMessage => {
 
   const thinkBlocks: string[] = [];
   let body = content;
+  let streaming = false;
 
   // 提取所有已闭合的 <think>...</think> 块，并从正文中移除
   body = body.replace(/<think>([\s\S]*?)<\/think>/g, (_, think: string) => {
@@ -136,13 +186,69 @@ const parser = (message: { content: string; role: string }): ParsedMessage => {
   if (partialMatch) {
     thinkBlocks.push(partialMatch[1]);
     body = body.slice(0, partialMatch.index);
+    streaming = true;
   }
 
-  const thinkContent = thinkBlocks.join('\n');
   body = body.trimStart();
 
-  if (thinkContent) {
-    return { role: 'assistant', thinkContent, content: body };
+  // 解析 <node title="...">...</node> 为思维链节点（ThoughtChain items）
+  const thoughtItems: ThoughtNode[] = [];
+  const thinkRaw = thinkBlocks.join('\n');
+  if (thinkRaw) {
+    let idx = 0;
+    // 生成节点描述行（官网 ThoughtChain 的 description，标题下方的灰色摘要）：
+    // - 思考节点：固定摘要，避免直接暴露大段推理
+    // - 工具结果节点：取结果首行（如命令输出第一行）
+    // - 工具调用节点：从 JSON 参数提取 command/path 等关键字段
+    const buildDescription = (title: string, text: string): string => {
+      if (title === '思考') return '模型推理过程';
+      if (title.startsWith('工具结果')) {
+        const first = text.trim().split('\n')[0] ?? '';
+        return first.length > 60 ? `${first.slice(0, 60)}…` : first;
+      }
+      try {
+        const obj = JSON.parse(text);
+        const v = obj.command ?? obj.path ?? obj.pattern;
+        if (typeof v === 'string' && v) return v;
+      } catch {
+        // 非 JSON 参数内容，不生成描述
+      }
+      return '';
+    };
+    const addNode = (title: string, text: string, closed: boolean) => {
+      thoughtItems.push({
+        key: `node-${idx++}`,
+        title,
+        description: buildDescription(title, text) || undefined,
+        content: text,
+        status: closed
+          ? title === '错误'
+            ? 'error'
+            : 'success'
+          : 'loading',
+      });
+    };
+    let rest = thinkRaw;
+    // 已闭合的 node 块
+    rest = rest.replace(
+      /<node title="([^"]*)">([\s\S]*?)<\/node>/g,
+      (_, title: string, text: string) => {
+        addNode(title, text, true);
+        return '';
+      },
+    );
+    // 最后一个未闭合的 node（流式输出中）
+    const openMatch = rest.match(/<node title="([^"]*)">([\s\S]*)$/);
+    if (openMatch) {
+      addNode(openMatch[1], openMatch[2], false);
+    } else if (rest.trim()) {
+      // 兼容旧格式：无 node 标记的纯思考文本，整体作为一个思考节点
+      addNode('思考', rest.trim(), !streaming);
+    }
+  }
+
+  if (thoughtItems.length) {
+    return { role: 'assistant', content: body, thoughtItems };
   }
   // 不存在思考标签，直接返回正文
   return { role: 'assistant', content: body };
@@ -152,6 +258,73 @@ const parser = (message: { content: string; role: string }): ParsedMessage => {
 const STREAMING_ACTIVE = { hasNextChunk: true, enableAnimation: true };
 // 流结束：没有后续分片
 const STREAMING_IDLE = { hasNextChunk: false, enableAnimation: true };
+
+/**
+ * 思维链渲染组件：按官网 API 封装 ThoughtChain
+ * - 每个节点 collapsible（节点级折叠，点击标题折叠/展开）
+ * - expandedKeys 受控（官网「受控的折叠」用法）
+ * - 折叠策略对齐官网演示效果：
+ *   流式中 loading 节点自动展开 + blink，正在执行的步骤实时可见；
+ *   流结束后「思考」节点自动折叠（只留标题+描述行，不再弹出大段推理原文），
+ *   工具调用/工具结果节点保持展开，错误节点始终展开
+ */
+const ThoughtChainView: React.FC<{
+  items: ThoughtNode[];
+  streaming: boolean;
+}> = ({ items, streaming }) => {
+  // 初始（含历史消息）：思考节点折叠，工具节点与错误节点展开
+  const [expandedKeys, setExpandedKeys] = useState<string[]>(() =>
+    items
+      .filter((n) => n.title !== '思考' || n.status === 'error')
+      .map((n) => n.key),
+  );
+  const prevStreamingRef = useRef(streaming);
+
+  // 流式中：新增节点与 loading 节点自动加入展开列表（用户手动折叠过的节点不受影响）
+  useEffect(() => {
+    if (!streaming) return;
+    setExpandedKeys((prev) => {
+      const autoKeys = items
+        .filter((n) => !prev.includes(n.key) || n.status === 'loading')
+        .map((n) => n.key)
+        .filter((k) => !prev.includes(k));
+      return autoKeys.length ? [...prev, ...autoKeys] : prev;
+    });
+  }, [items, streaming]);
+
+  // 流结束下降沿：折叠「思考」节点，仅保留工具/错误节点展开
+  useEffect(() => {
+    const wasStreaming = prevStreamingRef.current;
+    prevStreamingRef.current = streaming;
+    if (wasStreaming && !streaming) {
+      setExpandedKeys(
+        items
+          .filter((n) => n.title !== '思考' || n.status === 'error')
+          .map((n) => n.key),
+      );
+    }
+  }, [streaming, items]);
+
+  return (
+    <ThoughtChain
+      items={items.map((n) => ({
+        key: n.key,
+        title: n.title,
+        description: n.description,
+        content: (
+          <XMarkdown streaming={streaming ? STREAMING_ACTIVE : STREAMING_IDLE}>
+            {n.content}
+          </XMarkdown>
+        ),
+        status: n.status,
+        blink: n.status === 'loading',
+        collapsible: true,
+      }))}
+      expandedKeys={expandedKeys}
+      onExpand={setExpandedKeys}
+    />
+  );
+};
 
 /**
  * 气泡角色配置
@@ -199,6 +372,8 @@ const roleConfig: BubbleListProps['role'] = {
 
 const ChatbotPage: React.FC = () => {
   const { styles } = useStyles();
+  // 从 URL 读取/写入当前会话 key，刷新后可直接定位到上次会话
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // 进入聊天页时锁定页面级滚动，避免页面出现滚动条导致抖动；
   // 仅消息列表区域内部可滚动（滚动条已隐藏），离开页面时恢复
@@ -219,8 +394,17 @@ const ChatbotPage: React.FC = () => {
     // 默认显示一个新对话
     { key: 'default', label: '💬 新对话', group: '今天', isDraft: true },
   ]);
+  // 从 URL 恢复的会话 key（延迟激活：等会话列表加载、threadIdMapRef 填充后再切换，
+  // 否则 useXChat 的 defaultMessages 会因查不到 threadId 而返回空）
+  const urlConversationKey = searchParams.get('conversation') ?? 'default';
   // 当前激活的会话key，多会话隔离消息
   const [activeKey, setActiveKey] = useState<string>('default');
+  // activeKey 变化时同步到 URL（replace 不产生历史记录）
+  useEffect(() => {
+    if (searchParams.get('conversation') !== activeKey) {
+      setSearchParams({ conversation: activeKey }, { replace: true });
+    }
+  }, [activeKey, searchParams, setSearchParams]);
   // 输入框绑定值
   const [inputValue, setInputValue] = useState('');
   // 历史会话加载中标记
@@ -228,23 +412,116 @@ const ChatbotPage: React.FC = () => {
 
   // 已安装技能列表（用于技能选择器）
   const [skills, setSkills] = useState<SkillConfig[]>([]);
-  // 当前选中的技能名称数组
-  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  // 每个会话对应的 Skills 映射：conversationKey -> string[]，刷新后从 localStorage 恢复
+  const [conversationSkills, setConversationSkills] = useState<Record<string, string[]>>(
+    readStoredSkillsMap,
+  );
+  // conversationSkills 的 ref，供切换会话时读取最新映射（避免 effect 依赖震荡）
+  const conversationSkillsRef = useRef<Record<string, string[]>>(conversationSkills);
+  useEffect(() => {
+    conversationSkillsRef.current = conversationSkills;
+  }, [conversationSkills]);
+
+  // 当前选中的技能名称数组：初始化为 URL 指定会话对应的 Skills，刷新后直接恢复
+  const [selectedSkills, setSelectedSkills] = useState<string[]>(
+    () => readStoredSkillsMap()[searchParams.get('conversation') ?? 'default'] ?? [],
+  );
   // selectedSkills 的 ref，供 getSkills 回调实时读取最新值（避免闭包过期）
-  const selectedSkillsRef = useRef<string[]>([]);
+  const selectedSkillsRef = useRef<string[]>(
+    readStoredSkillsMap()[searchParams.get('conversation') ?? 'default'] ?? [],
+  );
   useEffect(() => {
     selectedSkillsRef.current = selectedSkills;
   }, [selectedSkills]);
 
+  // 持久化每个会话的 Skills 映射到 localStorage，刷新页面后可恢复
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        CONVERSATION_SKILLS_STORAGE_KEY,
+        JSON.stringify(conversationSkills),
+      );
+    } catch {
+      // 忽略存储失败（如隐私模式）
+    }
+  }, [conversationSkills]);
+
+  // 当前会话的 Skills 变更时，写回到 conversationSkills[activeKey]
+  useEffect(() => {
+    setConversationSkills((prev) => {
+      const cur = prev[activeKey];
+      if (cur && cur.length === selectedSkills.length && cur.every((s, i) => s === selectedSkills[i])) {
+        return prev;
+      }
+      return { ...prev, [activeKey]: [...selectedSkills] };
+    });
+  }, [selectedSkills, activeKey]);
+
+  // 切换会话时，恢复该会话对应的 Skills
+  useEffect(() => {
+    const stored = conversationSkillsRef.current[activeKey];
+    setSelectedSkills(stored ? [...stored] : []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey]);
+
   // 可用 Agent 列表（用于 Agent 选择器）
   const [agents, setAgents] = useState<AgentConfig[]>([]);
-  // 当前选中的 Agent 名称（单选，为空时后端使用默认 TestAgent）
-  const [selectedAgent, setSelectedAgent] = useState<string>('');
+  // 每个会话对应的 Agent 映射：conversationKey -> agentName，刷新后从 localStorage 恢复
+  const [conversationAgents, setConversationAgents] = useState<Record<string, string>>(
+    readStoredAgentMap,
+  );
+  // conversationAgents 的 ref，供切换会话时读取最新映射（避免 effect 依赖震荡）
+  const conversationAgentsRef = useRef<Record<string, string>>(conversationAgents);
+  useEffect(() => {
+    conversationAgentsRef.current = conversationAgents;
+  }, [conversationAgents]);
+
+  // 当前选中的 Agent：初始化为 URL 指定会话对应的 Agent，刷新后直接恢复
+  const [selectedAgent, setSelectedAgent] = useState<string>(
+    () => readStoredAgentMap()[searchParams.get('conversation') ?? 'default'] ?? '',
+  );
   // selectedAgent 的 ref，供 getAgent 回调实时读取最新值（避免闭包过期）
-  const selectedAgentRef = useRef<string>('');
+  const selectedAgentRef = useRef<string>(
+    readStoredAgentMap()[searchParams.get('conversation') ?? 'default'] ?? '',
+  );
   useEffect(() => {
     selectedAgentRef.current = selectedAgent;
   }, [selectedAgent]);
+
+  // 持久化每个会话的 Agent 映射到 localStorage，刷新页面后可恢复
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        CONVERSATION_AGENTS_STORAGE_KEY,
+        JSON.stringify(conversationAgents),
+      );
+    } catch {
+      // 忽略存储失败（如隐私模式）
+    }
+  }, [conversationAgents]);
+
+  // 当前会话的 Agent 变更时，写回到 conversationAgents[activeKey]
+  useEffect(() => {
+    setConversationAgents((prev) => {
+      if (prev[activeKey] === selectedAgent) return prev;
+      return { ...prev, [activeKey]: selectedAgent };
+    });
+  }, [selectedAgent, activeKey]);
+
+  // 切换会话时，恢复该会话对应的 Agent；若已被删除则回退到第一个可用 Agent
+  // 仅依赖 activeKey 与 agents，避免 conversationAgents 变化时覆盖用户正在选择的值
+  useEffect(() => {
+    const stored = conversationAgentsRef.current[activeKey];
+    const valid = !!stored && agents.some((a) => a.name === stored);
+    if (valid) {
+      setSelectedAgent(stored);
+    } else if (agents.length > 0) {
+      setSelectedAgent(agents[0].name);
+    } else if (stored) {
+      setSelectedAgent(stored);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey, agents]);
 
   // 页面挂载时加载已安装技能列表和 Agent 列表，填充选择器
   useEffect(() => {
@@ -252,13 +529,7 @@ const ChatbotPage: React.FC = () => {
       .then((list) => setSkills(list))
       .catch((e) => console.error('[chatbot] load skills failed:', e));
     listAgents()
-      .then((list) => {
-        setAgents(list);
-        // 默认选中第一个可用 Agent
-        if (list.length > 0 && !selectedAgent) {
-          setSelectedAgent(list[0].name);
-        }
-      })
+      .then((list) => setAgents(list))
       .catch((e) => console.error('[chatbot] load agents failed:', e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -306,6 +577,15 @@ const ChatbotPage: React.FC = () => {
           sessions.forEach((s) => {
             threadIdMapRef.current[s.threadId] = s.threadId;
           });
+          // 此时 threadIdMapRef 已填充完毕，可以安全切换到 URL 指定的会话，
+          // useXChat 的 defaultMessages 能查到 threadId 并加载历史消息
+          const validKeys = new Set<string>(['default', ...sessions.map((s) => s.threadId)]);
+          if (urlConversationKey !== 'default' && validKeys.has(urlConversationKey)) {
+            setActiveKey(urlConversationKey);
+          }
+        } else {
+          // 无历史会话，保持“新对话”
+          setActiveKey('default');
         }
       } catch (e) {
         console.error('[chatbot] load sessions failed:', e);
@@ -475,6 +755,15 @@ const ChatbotPage: React.FC = () => {
    */
   const newChat = () => {
     const key = generateId();
+    // 新会话继承当前选中的 Agent 和 Skills
+    setConversationAgents((prev) => ({
+      ...prev,
+      [key]: selectedAgentRef.current,
+    }));
+    setConversationSkills((prev) => ({
+      ...prev,
+      [key]: [...selectedSkillsRef.current],
+    }));
     setConversations((prev) => [
       { key, label: '新对话', group: '今天', isDraft: true },
       ...prev,
@@ -483,26 +772,18 @@ const ChatbotPage: React.FC = () => {
   };
 
   /**
-   * 根据消息状态返回 XMarkdown 的流式配置
-   * - updating：流式输出中，开启逐字动画并标记有后续分片
-   * - 其他状态：流已结束
-   */
-  const getStreamingConfig = (status?: string) =>
-    status === 'updating' ? STREAMING_ACTIVE : STREAMING_IDLE;
-
-  /**
    * 转换气泡渲染列表
    * 把 parsedMessages 映射成 Bubble.List 需要的格式
-   * 如果解析出 thinkContent，挂载到 item.header，交给 <Think> 组件渲染思考块
-   * 思考内容与正文一样使用 XMarkdown 结构化渲染 + 流式动画
+   * 如果解析出 thoughtItems，挂载到 item.header，交给 ThoughtChainView 渲染思维链节点
+   * （思考节点 / 工具调用节点 / 工具结果节点），每个节点用 XMarkdown 渲染 + 流式动画
    */
   const bubbleItems = useMemo<BubbleItemType[]>(
     () =>
       parsedMessages.map((msg) => {
         const parsed = msg.message as ParsedMessage;
         const isAI = parsed.role === 'assistant';
-        const thinkContent =
-          parsed.role === 'assistant' ? parsed.thinkContent : undefined;
+        const thoughtItems =
+          parsed.role === 'assistant' ? parsed.thoughtItems : undefined;
 
         const item: BubbleItemType = {
           key: msg.id,
@@ -512,14 +793,13 @@ const ChatbotPage: React.FC = () => {
           status: msg.status,
         };
 
-        // 有思考内容：用 XMarkdown 结构化渲染，支持流式动画，与正文保持一致
-        if (isAI && thinkContent) {
+        // 有思维链节点：交给 ThoughtChainView 渲染（节点可折叠，流式中当前节点闪烁）
+        if (isAI && thoughtItems?.length) {
           item.header = (
-            <Think>
-              <XMarkdown streaming={getStreamingConfig(msg.status)}>
-                {thinkContent}
-              </XMarkdown>
-            </Think>
+            <ThoughtChainView
+              items={thoughtItems}
+              streaming={msg.status === 'updating'}
+            />
           );
         }
 
@@ -619,6 +899,20 @@ const ChatbotPage: React.FC = () => {
                       // 清理 ref 中的映射和消息缓存
                       delete threadIdMapRef.current[conversation.key];
                       if (threadId) delete messageCacheRef.current[threadId];
+                      // 清理该会话对应的 Agent 缓存
+                      setConversationAgents((prev) => {
+                        if (!(conversation.key in prev)) return prev;
+                        const next = { ...prev };
+                        delete next[conversation.key];
+                        return next;
+                      });
+                      // 清理该会话对应的 Skills 缓存
+                      setConversationSkills((prev) => {
+                        if (!(conversation.key in prev)) return prev;
+                        const next = { ...prev };
+                        delete next[conversation.key];
+                        return next;
+                      });
                       setConversations((prev) => {
                         const next = prev.filter(
                           (c) => c.key !== conversation.key,

@@ -11,6 +11,21 @@ export interface ConversationItem {
   manuallyRenamed?: boolean;
 }
 
+/** 思维链节点：由后端 <node title="...">...</node> 协议解析而来，供 ThoughtChain 渲染 */
+export interface ThoughtNode {
+  key: string;
+  title: string;
+  /** 节点描述行（官网 ThoughtChain 的 description）：标题下方的灰色摘要，折叠时也能看到关键信息 */
+  description?: string;
+  content: string;
+  status: 'loading' | 'success' | 'error';
+}
+
 export type ParsedMessage =
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string; thinkContent?: string };
+  | {
+      role: 'assistant';
+      content: string;
+      /** 思维链节点列表（<node> 协议解析结果；旧版无 node 的纯思考文本会归入「思考」节点） */
+      thoughtItems?: ThoughtNode[];
+    };

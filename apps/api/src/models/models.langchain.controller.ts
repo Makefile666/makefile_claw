@@ -174,11 +174,47 @@ export class ModelsLangchainController {
       };
 
       // ==========================================================
-      // 流式输出状态追踪
-      // - thinkingStarted / thinkingEnded：思考标签边界
-      // - 每个分片同时可能包含：思考(reasoning)、正文(content)、工具调用(tool_calls)、工具结果(tool_call_id)
-      let thinkingStarted = false;
-      let thinkingEnded = false;
+      // 流式输出状态追踪（思维链 node 协议）
+      // 协议：<think> 容器内嵌 <node title="...">内容</node>
+      //   - 思考内容  → <node title="思考">
+      //   - 工具调用  → <node title="<中文名> <工具名>">参数</node>
+      //   - 工具结果  → <node title="工具结果 <工具名>">结果</node>
+      // 每个分片同时可能包含：思考(reasoning)、正文(content)、工具调用(tool_calls)、工具结果(tool_call_id)
+      let openNode: 'think' | 'tool' | 'tool_result' | null = null;
+      let thinkOpened = false;
+      // tool_call_id -> 工具名，工具结果分片只有 id，靠此映射反查工具名用于节点标题
+      const toolNameById = new Map<string, string>();
+      // 工具名中文映射，用于思维链节点标题
+      const TOOL_TITLE: Record<string, string> = {
+        execute: '执行命令', read_file: '读取文件', write_file: '写入文件',
+        edit_file: '编辑文件', ls: '列出目录', glob: '查找文件',
+        grep: '搜索内容', delete: '删除文件', write_todos: '更新待办',
+      };
+      // 关闭当前 node
+      const closeNode = () => {
+        if (openNode) {
+          emit('</node>');
+          openNode = null;
+        }
+      };
+      // 打开新 node（首次自动打开 <think> 容器）
+      const openNodeFn = (title: string, kind: 'think' | 'tool' | 'tool_result') => {
+        closeNode();
+        if (!thinkOpened) {
+          emit('<think>');
+          thinkOpened = true;
+        }
+        emit(`<node title="${title}">`);
+        openNode = kind;
+      };
+      // 闭合 node 与 think 容器，正文内容在容器外下发
+      const closeThink = () => {
+        closeNode();
+        if (thinkOpened) {
+          emit('</think>');
+          thinkOpened = false;
+        }
+      };
 
       // ==========================================================
       // 以 streamMode: 'messages' 模式发起流式请求，返回异步迭代器
@@ -274,6 +310,7 @@ export class ModelsLangchainController {
           toolCallCount++;
           const tc = messageChunk.tool_calls[0];
           const toolName = tc?.name || 'unknown';
+          if (tc?.id) toolNameById.set(tc.id, toolName);
           const argsStr = tc?.args ? JSON.stringify(tc.args) : '';
           const argsPreview = argsStr.length > 80 ? argsStr.slice(0, 80) + '...' : argsStr;
           this.logger.log(`[工具调用] #${toolCallCount} ${toolName}(${argsPreview})`);
@@ -285,34 +322,37 @@ export class ModelsLangchainController {
         }
 
         // ----------------------------------------------------------
-        // 思考过程：用 <think> 标签包裹，前端 parser 拆分后交给 <Think> 组件渲染
-        if (hasThinking && !thinkingEnded) {
-          if (!thinkingStarted) {
-            emit("<think>");
-            thinkingStarted = true;
-          }
+        // 思维链 node 下发（供前端 ThoughtChain 渲染）：
+        // - 思考内容 → <node title="思考">
+        // - 工具调用 → <node title="<中文名> <工具名>">参数 JSON</node>
+        // - 工具结果 → <node title="工具结果 <工具名>">结果文本</node>
+        if (hasThinking) {
+          if (openNode !== 'think') openNodeFn('思考', 'think');
           emit(String(reasoning));
         }
-
-        // 思考结束：之前在思考、当前分片无思考内容 → 闭合 </think>
-        if (thinkingStarted && !thinkingEnded && !hasThinking) {
-          emit("</think>");
-          thinkingEnded = true;
+        if (hasToolCalls) {
+          const tc = messageChunk.tool_calls[0];
+          const toolName = tc?.name || 'unknown';
+          const argsStr = tc?.args ? JSON.stringify(tc.args) : '';
+          openNodeFn(`${TOOL_TITLE[toolName] ?? ''} ${toolName}`.trim(), 'tool');
+          if (argsStr) emit(argsStr);
+        }
+        if (isToolResult) {
+          const toolName = toolNameById.get(messageChunk.tool_call_id) ?? '';
+          openNodeFn(toolName ? `工具结果 ${toolName}` : '工具结果', 'tool_result');
+          emit(aiContent.length > 200 ? aiContent.slice(0, 200) + '…' : aiContent);
         }
 
         // ----------------------------------------------------------
-        // 内容下发：
-        // - AI 正文、工具执行结果的 content 直接下发（不带 "🔧 调用工具" / "📋 工具执行结果" 标签）
-        // - 工具调用的 name/args（tool_calls）属于中间过程，不下发
-        if (hasAnswer && !hasToolCalls) {
+        // 正文下发：先闭合 think 容器，正文在容器外输出
+        if (hasAnswer && !hasToolCalls && !isToolResult) {
+          closeThink();
           emit(aiContent);
         }
       }
 
-      // 兜底处理：流提前结束、没有正文内容时，手动闭合 </think> 标签，防止标签不配对
-      if (thinkingStarted && !thinkingEnded) {
-        emit("</think>");
-      }
+      // 兜底处理：流提前结束时闭合未关闭的 node 与 think 容器，防止标签不配对
+      closeThink();
 
       // 流正常结束，清理所有定时器
       clearTimeout(runTimer);
@@ -349,15 +389,22 @@ export class ModelsLangchainController {
       } else {
         this.logger.error(`[对话异常] ${err.name}: ${err.message}`, err.stack);
       }
-      // 异常分支：向前端下发错误提示分片，保证流有正常结束标记，前端不会无限等待
+      // 异常分支：向前端下发错误提示分片（错误作为思维链的 error 节点下发），
+      // 保证流有正常结束标记，前端不会无限等待
+      const errText = isIdleTimeout
+        ? '模型长时间无响应，已中断'
+        : isRunTimeout
+          ? '任务执行超时，已中断'
+          : '服务异常，请稍后重试';
       const errPayload = JSON.stringify({
-        choices: [{ delta: { content: "\n\n⚠️ 服务异常，请稍后重试。" } }],
+        choices: [{ delta: { content: `\n\n<think><node title="错误">${errText}</node></think>\n\n⚠️ ${errText}` } }],
+        sessionId,
       });
       res.write(`data: ${errPayload}\n\n`);
       res.write("data: [DONE]\n\n");
       res.end();
     } finally {
-        // close 内部先强制回收所有残留终端，再等待 MCP 客户端和 npx 子进程真正关闭
+        // close 关闭 LocalShellBackend（deepagents 的 execute 每次都是短命子进程，无 MCP 进程树需要清理）
         await close()
 
         // 清空 FileSaver 的防抖定时器，并立即执行一次落盘，
@@ -370,12 +417,7 @@ export class ModelsLangchainController {
 
         this.logger.log(`[对话结束] 资源已清理，会话 ${threadId} 持久化完成`);
 
-        // 不再调用 process.exit(0)。
-        // 之前为解决 Windows 下残留句柄问题而强制退出进程，
-        // 但这会导致每次对话结束后整个 API 服务被杀死重启，
-        // 使得 Agents/Models/Tools 等页面请求在重启期间变得极慢。
-        // close() 内部已通过 taskkill /T /F 递归杀掉 MCP 进程树，
-        // client.close() 也会释放传输层句柄，无需再退出整个服务进程。
+        // 不再调用 process.exit(0)：close() 已释放后端资源，无需退出整个服务进程。
     }
   }
 
@@ -580,7 +622,12 @@ export class ModelsLangchainController {
    * GET /models-streaming/sessions/:threadId/messages
    *
    * 通过 Agent 的 getState 从 FileSaver 检查点中恢复该 threadId 的消息列表，
-   * 转换为前端可直接渲染的格式（assistant 的思考过程用 <think> 标签包裹）。
+   * 重建与流式输出一致的 <think><node> 协议：
+   *   - 思考过程(reasoning_content) → <node title="思考">
+   *   - 工具调用(tool_calls)         → <node title="<中文名> <工具名>">参数JSON</node>
+   *   - 工具结果(ToolMessage)         → <node title="工具结果 <工具名>">结果</node>
+   *   - 正文回答                      → 放在 </think> 之后
+   * 前端 parser 据此渲染完整的思维链（思考 + 工具调用 + 工具结果）。
    */
   @Get("sessions/:threadId/messages")
   async getSessionMessages(@Param("threadId") threadId: string, @Res() res: any) {
@@ -630,54 +677,81 @@ export class ModelsLangchainController {
         return String(content);
       };
 
-      // 第一步：把每条 LangChain 消息转换为统一的 { role, content } 结构
-      const mapped = rawMessages
-        .map((msg) => {
-          const type =
-            typeof msg?._getType === "function" ? msg._getType() : msg?.type;
-          // tool 类型消息（工具执行结果）统一以 assistant 角色渲染，与流式输出一致
-          const role =
-            type === "human"
-              ? "user"
-              : type === "ai"
-                ? "assistant"
-                : type === "tool"
-                  ? "assistant"
-                  : type === "system"
-                    ? "system"
-                    : type;
+      // 工具名中文映射，与流式输出保持一致，用于思维链节点标题
+      const TOOL_TITLE: Record<string, string> = {
+        execute: '执行命令', read_file: '读取文件', write_file: '写入文件',
+        edit_file: '编辑文件', ls: '列出目录', glob: '查找文件',
+        grep: '搜索内容', delete: '删除文件', write_todos: '更新待办',
+      };
 
-          // 提取文本内容（兼容字符串、数组、对象等多种格式）
-          let content = extractText(msg?.content);
-
-          // 思考过程：从 additional_kwargs.reasoning_content 取出，用 <think> 包裹
-          const reasoning = msg?.additional_kwargs?.reasoning_content;
-          if (role === "assistant" && reasoning) {
-            content = `<think>${reasoning}</think>${content}`;
-          }
-
-          // 工具调用信息（AIMessage.tool_calls 的 name/args）属于中间过程，不在聊天页面展示
-          // 这里不拼接 tool_calls 内容
-
-          return { role, content };
-        })
-        .filter((m) => m && m.role);
-
-      // 第二步：合并连续的 assistant 消息为一条
-      // （一次用户提问后，AI 可能产生多条 AIMessage + ToolMessage，
-      //   在前端应显示为同一个 assistant 气泡，避免被拆成多次对话）
+      // 按用户提问分轮次：每两条 human 消息之间的所有 ai/tool 消息属于同一轮 assistant 回复
+      // 对每一轮重建 <think><node>...</node></think> 协议，与流式输出格式一致
       const messages: { role: string; content: string }[] = [];
-      for (const m of mapped) {
-        if (m.role === "assistant" && messages.length > 0) {
-          const last = messages[messages.length - 1];
-          if (last.role === "assistant") {
-            // 追加到上一条 assistant 消息，用换行分隔
-            last.content = (last.content ? last.content + "\n\n" : "") + m.content;
-            continue;
-          }
+      let turnThinkNodes: string[] = [];
+      let turnAnswer = '';
+      // tool_call_id -> 工具名，工具结果消息只有 id，靠此映射反查工具名
+      const toolNameById = new Map<string, string>();
+
+      const flushAssistantTurn = () => {
+        if (turnThinkNodes.length === 0 && !turnAnswer) return;
+        const think = turnThinkNodes.length > 0
+          ? `<think>${turnThinkNodes.join('')}</think>`
+          : '';
+        messages.push({ role: 'assistant', content: think + turnAnswer });
+        turnThinkNodes = [];
+        turnAnswer = '';
+      };
+
+      for (const msg of rawMessages) {
+        const type =
+          typeof msg?._getType === "function" ? msg._getType() : msg?.type;
+
+        if (type === "human") {
+          // 新的用户提问：先把上一轮 assistant 回复刷出
+          flushAssistantTurn();
+          const content = extractText(msg?.content);
+          messages.push({ role: 'user', content });
+          continue;
         }
-        messages.push({ role: m.role, content: m.content });
+
+        if (type === "system") {
+          // system 消息不展示在聊天记录中
+          continue;
+        }
+
+        // ai / tool 消息，归入当前 assistant 轮次
+        const content = extractText(msg?.content);
+
+        if (type === "ai") {
+          // 1) 思考过程 → <node title="思考">
+          const reasoning = msg?.additional_kwargs?.reasoning_content;
+          if (reasoning) {
+            turnThinkNodes.push(`<node title="思考">${String(reasoning)}</node>`);
+          }
+          // 2) 工具调用 → <node title="<中文名> <工具名>">参数 JSON</node>
+          const toolCalls = msg?.tool_calls;
+          if (toolCalls && toolCalls.length > 0) {
+            for (const tc of toolCalls) {
+              const toolName = tc?.name || 'unknown';
+              if (tc?.id) toolNameById.set(tc.id, toolName);
+              const argsStr = tc?.args ? JSON.stringify(tc.args) : '';
+              const title = `${TOOL_TITLE[toolName] ?? ''} ${toolName}`.trim();
+              turnThinkNodes.push(`<node title="${title}">${argsStr}</node>`);
+            }
+          }
+          // 3) 正文回答（不含工具调用的 AI content）→ 放在 </think> 之后
+          if (content && (!toolCalls || toolCalls.length === 0)) {
+            turnAnswer += (turnAnswer ? '\n\n' : '') + content;
+          }
+        } else if (type === "tool") {
+          // 工具执行结果 → <node title="工具结果 <工具名>">结果</node>
+          const toolName = (msg?.name as string) || toolNameById.get(msg?.tool_call_id) || '';
+          const title = toolName ? `工具结果 ${toolName}` : '工具结果';
+          turnThinkNodes.push(`<node title="${title}">${content}</node>`);
+        }
       }
+      // 收尾：刷出最后一轮 assistant 回复
+      flushAssistantTurn();
 
       res.json({ messages });
     } catch (error) {

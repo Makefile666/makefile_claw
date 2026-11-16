@@ -8,6 +8,7 @@ import {
   DEFAULT_CONFIG,
   type AgentConfig,
   type ClawConfig,
+  type McpServerConfig,
   type ModelConfig,
   type ToolConfig,
 } from './claw-config.types.js';
@@ -79,6 +80,22 @@ const migrateTool = (raw: Record<string, unknown>): ToolConfig => {
       : raw.builtin === true ? 1 : 0,
     category: raw.category != null ? String(raw.category) : undefined,
     config: (raw.config as Record<string, unknown>) ?? undefined,
+  };
+};
+
+/**
+ * 兼容 McpServer 字段：
+ * - headers 缺失时默认为空对象
+ * - active 缺失时默认 0（未启用）
+ */
+const migrateMcpServer = (raw: Record<string, unknown>): McpServerConfig => {
+  return {
+    name: String(raw.name ?? ''),
+    url: String(raw.url ?? ''),
+    headers: (raw.headers as Record<string, string>) ?? {},
+    active: typeof raw.active === 'number' ? raw.active : 0,
+    createdAt: raw.createdAt != null ? String(raw.createdAt) : undefined,
+    updatedAt: raw.updatedAt != null ? String(raw.updatedAt) : undefined,
   };
 };
 
@@ -181,6 +198,7 @@ export class ClawConfigService implements OnModuleInit {
       agents: (config.agents ?? []).map((a) => migrateAgent(a as unknown as Record<string, unknown>)),
       models: (config.models ?? []).map((m) => migrateModel(m as unknown as Record<string, unknown>)),
       tools: mergedTools,
+      mcpServers: (config.mcpServers ?? []).map((m) => migrateMcpServer(m as unknown as Record<string, unknown>)),
     };
   }
 
@@ -195,6 +213,7 @@ export class ClawConfigService implements OnModuleInit {
       agents: config.agents ?? [],
       models: config.models ?? [],
       tools: mergedTools,
+      mcpServers: config.mcpServers ?? [],
     };
     this.atomicWrite(JSON.stringify(toSave, null, 2));
     this.logger.log('配置已保存');

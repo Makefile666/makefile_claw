@@ -7,6 +7,9 @@ async function bootstrap() {
     instrument: ObserveInstrument,
   });
   app.enableCors();
+  // 增大 JSON 请求体限制，支持图片/文档 base64 上传（默认 100kb 不够）
+  // useBodyParser 是 NestExpressApplication 的方法，运行时存在
+  (app as any).useBodyParser('json', { limit: '50mb' });
   app.useGlobalFilters(new AllExceptionsFilter());
   await app.listen(process.env.PORT ?? 3000);
 }

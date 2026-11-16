@@ -1,0 +1,127 @@
+makefile_claw/
+├── package.json                          # 根工作区配置（pnpm workspace 声明 apps/* + packages/*）
+├── .gitignore                            # Git 忽略规则
+├── .postman/resources.yaml               # Postman 接口资源定义
+├── request-flow.html                     # 【生成】请求链路运行流程图（可视化文档）
+│
+├── agent/                                # 技能资源目录（Vercel/React 相关最佳实践技能）
+│   └── skills/                           # 各类 SKILL.md 定义，供 AI 助手调用
+│
+├── apps/api/                             # ⚙️ 后端 NestJS 服务（端口 3000）
+│   ├── package.json                      # 后端依赖与脚本（nest start / build / test）
+│   ├── nest-cli.json                     # NestJS CLI 配置
+│   ├── tsconfig.json                     # TypeScript 编译配置
+│   ├── vitest.config.ts                  # Vitest 单元测试配置
+│   ├── .oxlintrc.json                    # Oxlint 代码检查规则
+│   │
+│   └── src/
+│       ├── main.ts                       # 应用入口：创建 NestApp、启用 CORS、全局异常过滤器、监听 3000
+│       ├── app.module.ts                 # 根模块：聚合 Agents/Models/Skills/Tools/ClawConfig 子模块
+│       ├── app.controller.ts             # 根控制器（健康检查 / 基础路由）
+│       ├── app.service.ts                # 根服务（通用业务逻辑）
+│       │
+│       ├── common/                       # 公共模块
+│       │   ├── all-exceptions.filter.ts  # 全局异常过滤器：统一错误响应格式
+│       │   └── response.ts               # 统一响应结构封装
+│       │
+│       ├── models/                       # 🧠 模型 & 流式对话（核心链路）
+│       │   ├── models.module.ts          # Models 模块注册
+│       │   ├── models.controller.ts      # 模型列表查询接口（非流式）
+│       │   ├── models.langchain.controller.ts  # ★ 流式对话控制器：GET /models-streaming，SSE 推送、技能注入、Agent 创建
+│       │   ├── models.service.ts         # 模型服务（模型配置查询）
+│       │   └── models.types.ts           # 模型相关类型定义
+│       │
+│       ├── agents/                       # 🤖 Agent 智能体管理
+│       │   ├── agents.module.ts          # Agents 模块注册
+│       │   ├── agents.controller.ts      # Agent CRUD 接口（GET/POST/PUT/DELETE /api/agents）
+│       │   ├── agents.service.ts         # Agent 业务逻辑（读写 makefile_claw.json）
+│       │   ├── agents.types.ts           # Agent 类型定义
+│       │   └── agents.controller.spec.ts # Agent 控制器单元测试
+│       │
+│       ├── skills/                       # 📚 技能管理
+│       │   ├── skills.module.ts          # Skills 模块注册
+│       │   ├── skills.controller.ts      # 技能接口：列表/详情/安装/启停/删除
+│       │   ├── skills.service.ts         # 技能服务：扫描 SKILL.md、pnpm dlx 安装、重写路径引用
+│       │   └── skills.types.ts           # 技能类型定义
+│       │
+│       ├── tools/                        # 🔧 工具管理
+│       │   ├── tools.module.ts           # Tools 模块注册
+│       │   ├── tools.controller.ts       # 工具列表查询接口
+│       │   ├── tools.service.ts          # 工具配置读取服务
+│       │   └── tools.types.ts            # 工具类型定义
+│       │
+│       └── claw-config/                  # ⚙️ 全局配置读写
+│           ├── claw-config.module.ts     # ClawConfig 模块注册
+│           ├── claw-config.controller.ts # 配置接口：GET /api/claw/config（agents+models+tools 一次返回）
+│           ├── claw-config.service.ts    # 配置服务：读写 ~/.makefile_claw/makefile_claw.json
+│           └── claw-config.types.ts      # 配置类型定义
+│
+├── apps/webui/                           # 🖥️ 前端 React + Umi + Ant Design Pro
+│   ├── package.json                      # 前端依赖与脚本（max dev / build）
+│   ├── tsconfig.json                     # TypeScript 配置
+│   ├── tailwind.config.js                # Tailwind CSS 配置
+│   ├── biome.json                        # Biome 格式化/检查配置
+│   │
+│   ├── config/
+│   │   ├── config.ts                     # Umi 主配置（插件、代理、构建）
+│   │   ├── routes.ts                     # 路由配置（菜单与页面映射）
+│   │   ├── defaultSettings.ts            # 主题/布局默认设置
+│   │   └── proxy.ts                      # 开发代理（/api → 后端 3000）
+│   │
+│   └── src/
+│       ├── app.tsx                       # 应用根组件
+│       ├── access.ts                     # 权限控制定义
+│       ├── global.tsx                    # 全局运行时配置（layout、request 拦截）
+│       ├── global.less                   # 全局样式
+│       ├── loading.tsx                   # 全局加载组件
+│       ├── requestErrorConfig.ts         # 请求错误统一处理
+│       │
+│       ├── components/                   # 通用组件
+│       │   ├── RightContent/             # 顶栏右侧（头像/语言/版本下拉）
+│       │   ├── Footer/                   # 页脚
+│       │   ├── ArticleListContent/       # 文章列表内容
+│       │   ├── AvatarList/               # 头像列表
+│       │   ├── ErrorBoundary/            # 错误边界
+│       │   ├── HeaderDropdown/           # 头部下拉
+│       │   ├── TagSelect/                # 标签选择器
+│       │   └── StandardFormRow/          # 标准表单行
+│       │
+│       └── pages/                        # 页面
+│           ├── Welcome.tsx               # 欢迎页
+│           ├── Admin.tsx                 # 管理页
+│           │
+│           ├── chatbot/                  # 💬 AI 助手（核心页面）
+│           │   ├── index.tsx             # ★ 聊天主页面：Agent/Skills 选择、消息列表、输入框、思维链渲染
+│           │   ├── service.ts            # ★ createChatProvider + customFetch：改写为 GET /models-streaming、SSE 解析、sessionId 存储
+│           │   ├── style.ts              # 聊天页样式
+│           │   └── data.d.ts             # 类型声明
+│           │
+│           ├── agents/                   # 🤖 Agent / 模型 / 技能 / 工具 管理菜单
+│           │   ├── Agents.tsx            # Agent 列表/新建/编辑/删除/启停
+│           │   ├── Models.tsx            # 模型管理
+│           │   ├── Skills.tsx            # 技能安装/启停/删除
+│           │   ├── Tools.tsx             # 工具管理
+│           │   ├── service.ts            # ★ 统一 API 调用：getMakefileClawAgentsConfig / createAgent / updateAgent / deleteAgent 等
+│           │   └── types.ts              # 类型定义
+│           │
+│           ├── dashboard/                # 仪表盘（analysis/monitor/workplace）
+│           ├── account/                  # 个人中心 / 账户设置
+│           ├── user/                     # 登录 / 注册
+│           ├── list/                     # 列表页（basic/card/search）
+│           ├── form/                     # 表单页（basic/advanced/step）
+│           ├── profile/                  # 详情页（basic/advanced）
+│           ├── result/                   # 结果页（success/fail）
+│           ├── table-list/               # 标准表格页
+│           └── exception/                # 异常页（403/404/500）
+│
+└── packages/agent-core/                  # 📦 Agent 核心库（被后端引用）
+    ├── package.json                      # 包依赖与构建脚本
+    ├── tsconfig.json                     # TypeScript 配置
+    │
+    └── src/
+        ├── index.ts                      # ★ createMakefileClawAgent：组装系统提示词 + 工具 + 检查点 + createDeepAgent
+        ├── agents.ts                     # initStreamModel：创建 ChatOpenAI 流式模型实例
+        ├── readConfig.ts                 # readConfigByAgentName / readConfigByModelName：读 makefile_claw.json
+        ├── FileSaver.js                  # 文件持久化检查点（Agent 对话状态落盘到 memory/<threadId>.json）
+        ├── LLM_instance.ts               # LLM 单例初始化（旧版，保留兼容）
+        └── runAgent_test.ts              # Agent 运行测试脚本

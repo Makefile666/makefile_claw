@@ -1,56 +1,96 @@
-import { Controller, Query, Get, Res, Param, Body, Delete, Post, Put, Logger } from "@nestjs/common";
+import { Controller, Get, Res, Param, Body, Delete, Post, Put, Logger, Query } from "@nestjs/common";
 import { createMakefileClawAgent, createModel, HumanMessage, FileSaver } from "@makefile-claw/agent-core";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { createRequire } from "node:module";
+import mammoth from "mammoth";
+import * as XLSX from "xlsx";
+// pdf-parse 是 CommonJS 包且无类型声明，用 createRequire 在 ESM 中安全加载
+const require = createRequire(import.meta.url);
+const pdfParse: (buffer: Buffer) => Promise<{ text: string }> = require("pdf-parse");
 import { ModelsService } from "./models.service.js";
 import { SkillsService } from "../skills/skills.service.js";
+import { ClawConfigService } from "../claw-config/claw-config.service.js";
+
+/**
+ * 从文档 buffer 中提取纯文本（支持 docx / xlsx / pdf / txt 等）
+ * @param buffer 文件二进制数据
+ * @param ext 文件扩展名（含点，如 '.docx'）
+ * @returns 提取的文本内容
+ */
+async function extractTextFromBuffer(buffer: Buffer, ext: string): Promise<string> {
+  const lower = ext.toLowerCase();
+  try {
+    if (lower === ".docx") {
+      const result = await mammoth.extractRawText({ buffer });
+      return result.value || "";
+    }
+    if (lower === ".xlsx" || lower === ".xls") {
+      const wb = XLSX.read(buffer, { type: "buffer" });
+      const sheets: string[] = [];
+      for (const name of wb.SheetNames) {
+        const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name]);
+        if (csv.trim()) sheets.push(`【工作表: ${name}】\n${csv}`);
+      }
+      return sheets.join("\n\n");
+    }
+    if (lower === ".pdf") {
+      const data = await pdfParse(buffer);
+      return data.text || "";
+    }
+    // txt / md / csv / json 等文本文件，直接用 utf-8 解码
+    return buffer.toString("utf-8");
+  } catch (e) {
+    console.error(`[extractText] 解析 ${ext} 失败:`, (e as Error).message);
+    return "";
+  }
+}
+
+/** 判断文件是否为图片类型 */
+function isImageMime(mime: string): boolean {
+  return mime.startsWith("image/");
+}
+
+/**
+ * 工作区文件树节点类型（与前端 @ant-design/x Folder 组件的 FolderTreeData 对齐）
+ */
+interface WorkspaceTreeNode {
+  title: string;
+  path: string;
+  isLeaf: boolean;
+  children?: WorkspaceTreeNode[];
+}
 
 @Controller("models-streaming")
 export class ModelsLangchainController {
+
   private readonly logger = new Logger(ModelsLangchainController.name);
+
   constructor(
     private readonly modelsService: ModelsService,
     private readonly skillsService: SkillsService,
+    private readonly clawConfigService: ClawConfigService,
   ) {}
 
   /**
    * 大模型流式对话接口，兼容 OpenAI SSE 协议格式
-   * 请求地址：GET /models-streaming?input=xxx
+   * 请求地址：POST /models-streaming
    *
-   * 【协议说明】
-   * 标准 SSE 流式输出，每条消息以 data: 开头，双换行 \n\n 作为分隔符
-   * 流末尾发送 data: [DONE] 标记本次会话结束
-   *
-   * 【输出结构】
-   * data: {"choices":[{"delta":{"content":"文本分片"}}]}
-   * data: [DONE]
-   *
-   * 【思考内容规则】
-   * 模型返回的 reasoning_content 思考过程，自动包裹 <think>...</think> 标签
-   * 前端解析器识别该标签，区分渲染思考区与回答正文
-   * 自动保证标签成对闭合，防止前端渲染错乱
-   *
-   * 【会话记忆与持久化】
-   * 本接口不再在内存中手动维护消息队列，而是改为基于 LangGraph Agent + FileSaver 检查点存储器：
-   * - createMakefileClawAgent 内部为每个 threadId 绑定一个 FileSaver，
-   *   自动把会话检查点持久化到 ~/.makefile_claw/memory/<threadId>.json
-   * - 前端首请求 chatId 为空时，后端生成新的 threadId 作为 sessionId 回传；
-   *   后续请求携带该 chatId，即可从本地文件恢复历史上下文，实现跨请求多轮记忆
-   * - Agent 已内置系统提示词（systemPrompt），无需手动注入 SystemMessage
-   *
-   * 【入参】
-   * input：用户提问文本，需要做 URL 解码
+   * 【请求体】（JSON）
+   * input：用户提问文本
    * chatId：会话ID（即上一轮返回的 sessionId），首次对话为空
-   *
-   * 【异常行为】
-   * 入参缺失返回 400；服务内部报错会向前端推送错误提示分片，再发送 [DONE]，保证流正常收尾，避免前端长连接挂死
+   * agent：选中的 Agent 名称
+   * skills：逗号分隔的技能名称列表
+   * attachments：附件数组，每项 { name, type, data(base64) }
+   *   - 图片（image/*）：以 data URL 形式传给多模态模型识别
+   *   - 文档（docx/xlsx/pdf/txt 等）：后端提取文本后拼接到提问中
    */
-  @Get()
-  async test(@Query() query: any, @Res() res: any) {
+  @Post()
+  async test(@Body() body: any, @Res() res: any) {
     // 校验必填入参，input 不存在直接返回400
-    if (!query.input) {
+    if (!body.input) {
       res.status(400).send("input is required");
       return;
     }
@@ -63,9 +103,9 @@ export class ModelsLangchainController {
     // 立即把响应头发送给客户端，不等待第一次业务数据
     res.flushHeaders?.();
 
-    let { input, chatId, skills, agent: agentParam } = query;
-    // 解码URL编码后的输入内容，并去除首尾空白字符
-    input = decodeURIComponent(input).trim();
+    let { input, chatId, skills, agent: agentParam, attachments, mcpServers } = body;
+    // 去除首尾空白字符
+    input = String(input).trim();
     // Agent 名称：前端选择透传，为空时回退到默认 "TestAgent"
     const agentName = agentParam ? String(agentParam) : "TestAgent";
 
@@ -77,11 +117,57 @@ export class ModelsLangchainController {
           .filter(Boolean)
       : [];
 
+    // 解析 mcpServers 参数：前端选中的 MCP 服务器名称数组，
+    // 支持数组形式或逗号分隔字符串。为空则不加载任何远程 MCP 工具。
+    const mcpServerNames: string[] = Array.isArray(mcpServers)
+      ? mcpServers.map((s: unknown) => String(s).trim()).filter(Boolean)
+      : mcpServers
+        ? String(mcpServers)
+            .split(',')
+            .map((s: string) => s.trim())
+            .filter(Boolean)
+        : [];
+
+    // 处理附件：图片转 data URL 供多模态模型识别，文档提取文本拼接到提问
+    const imageParts: { type: "image_url"; image_url: { url: string } }[] = [];
+    let docText = "";
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      for (const att of attachments) {
+        const name: string = att?.name ?? "file";
+        const mime: string = att?.type ?? "";
+        const data: string = att?.data ?? "";
+        if (!data) continue;
+        const ext = path.extname(name).toLowerCase();
+        if (isImageMime(mime)) {
+          // 图片：构造 data URL，传给多模态大模型
+          const dataUrl = `data:${mime};base64,${data}`;
+          imageParts.push({ type: "image_url", image_url: { url: dataUrl } });
+        } else {
+          // 文档：提取纯文本，拼接到用户提问中
+          try {
+            const buf = Buffer.from(data, "base64");
+            const text = await extractTextFromBuffer(buf, ext);
+            if (text.trim()) {
+              docText += `\n\n【附件文件: ${name}】\n${text}\n`;
+            }
+          } catch (e) {
+            this.logger.warn(`[附件] 解析 ${name} 失败: ${(e as Error).message}`);
+          }
+        }
+      }
+    }
+    // 若有文档文本，拼接到用户提问前面
+    if (docText) {
+      input = docText + "\n\n用户提问：" + input;
+    }
+
     // 记录请求概要（input 截断到 100 字符，避免日志过长）
     const inputPreview = input.length > 100 ? input.slice(0, 100) + '...' : input;
     this.logger.log(
       `[对话请求] agent=${agentName}, skills=[${skillNames.join(', ')}], ` +
-      `chatId=${chatId || '(新会话)'}, input="${inputPreview}"`,
+      `mcpServers=[${mcpServerNames.join(', ')}], ` +
+      `chatId=${chatId || '(新会话)'}, images=${imageParts.length}, docs=${docText ? 'yes' : 'no'}, ` +
+      `input="${inputPreview}"`,
     );
 
     // 加载选中技能的正文内容，合并为一段注入到 system prompt
@@ -139,14 +225,56 @@ export class ModelsLangchainController {
     // 会话状态自动持久化到 ~/.makefile_claw/memory/<threadId>.json
     // 全局运行超时，超时后 abort 信号触发，进入 catch 再由 finally 强制清理
     // 技能驱动的 Agent 可能执行多轮工具调用（搜索文件、读取参考文档等），
-    // 90s 容易超时，放宽到 5 分钟以覆盖复杂任务
-    const RUN_TIMEOUT_MS = 300 * 1000
+    // 300s 对长任务偏紧（实测 28 次工具调用即触顶），放宽到 10 分钟
+    const RUN_TIMEOUT_MS = 600 * 1000
     // 无活动超时：模型连续 IDLE_TIMEOUT_MS 不输出任何分片时主动中断。
     // 模型卡死、网络中断等场景下快速失败，避免干等到总超时。
     const IDLE_TIMEOUT_MS = 90 * 1000
-    this.logger.log(`创建 Agent: ${agentName}, threadId=${threadId}, 总超时=${RUN_TIMEOUT_MS / 1000}s, 无活动超时=${IDLE_TIMEOUT_MS / 1000}s`);
+    // 单轮对话最大工具调用次数：防止上下文无限膨胀导致每轮越来越慢最终超时。
+    // 超过上限后主动中止并提示用户，已完成的步骤已由 FileSaver 持久化，可继续。
+    const MAX_TOOL_CALLS_PER_RUN = 25
+    this.logger.log(`创建 Agent: ${agentName}, threadId=${threadId}, 总超时=${RUN_TIMEOUT_MS / 1000}s, 无活动超时=${IDLE_TIMEOUT_MS / 1000}s, 最大工具调用=${MAX_TOOL_CALLS_PER_RUN}次`);
     const agentCreateStart = Date.now();
-    const { agent, close, checkpointer } = await createMakefileClawAgent(agentName, threadId, undefined, skillsContent);
+    // Agent 创建失败（如智能体/模型配置不存在）时，此时 SSE 响应头已下发，
+    // 不能再抛给全局异常过滤器（会触发 ERR_HTTP_HEADERS_SENT），
+    // 直接在流内下发错误分片并正常结束流
+    let created: Awaited<ReturnType<typeof createMakefileClawAgent>>;
+    try {
+      // 根据前端选中的 MCP 服务器名称，从配置中解析出完整的远程服务器信息（url + headers），
+      // 只包含已启用的服务器。传入 createMakefileClawAgent 的 toolsEnable.remoteServers，
+      // 由 agent-core 通过 StreamableHTTPClientTransport 连接并加载工具。
+      const allMcpServers = this.clawConfigService.readConfig().mcpServers;
+      const remoteServers = allMcpServers
+        .filter((m) => mcpServerNames.includes(m.name) && m.active === 1)
+        .map((m) => ({
+          name: m.name,
+          url: m.url,
+          headers: m.headers ?? {},
+        }));
+      if (remoteServers.length > 0) {
+        this.logger.log(
+          `[MCP] 启用远程服务器: ${remoteServers.map((s) => `${s.name}(${s.url})`).join(', ')}`,
+        );
+      }
+      created = await createMakefileClawAgent(
+        agentName,
+        threadId,
+        { fileTools: true, shellTools: true, webTools: true, remoteServers },
+        skillsContent,
+      );
+    } catch (e) {
+      const msg = (e as Error).message || 'Agent 创建失败';
+      this.logger.error(`[创建 Agent 失败] ${msg}`);
+      const errPayload = JSON.stringify({
+        choices: [{ delta: { content: `\n\n<think><node title="错误">${msg}</node></think>\n\n⚠️ ${msg}` } }],
+        sessionId,
+      });
+      res.write(`data: ${errPayload}\n\n`);
+      res.write("data: [DONE]\n\n");
+      res.end();
+      return;
+    }
+    const { agent, close, checkpointer } = created;
     this.logger.log(`Agent 创建完成，耗时 ${Date.now() - agentCreateStart}ms`);
 
     // ==========================================================
@@ -241,8 +369,13 @@ export class ModelsLangchainController {
       };
       resetIdleTimer();
 
+      // 构造用户消息：有图片时使用多模态内容数组，否则纯文本
+      const userContent = imageParts.length > 0
+        ? [{ type: "text" as const, text: input }, ...imageParts]
+        : input;
+
       const response = await agent.stream(
-        { messages: [{ role: "user", content: input }] },
+        { messages: [{ role: "user", content: userContent }] },
         {
           streamMode: "messages",
           configurable: { thread_id: threadId },
@@ -305,15 +438,25 @@ export class ModelsLangchainController {
         if (hasThinking) thinkingChars += String(reasoning).length;
         if (hasAnswer && !hasToolCalls) answerChars += aiContent.length;
 
-        // 工具调用：记录工具名和参数预览
+        // 工具调用：记录工具名和参数预览。
+        // 按 tool_call_id 去重计数（流式模式下同一个 tool_call 可能拆成多个分片），
+        // 并在达到单轮上限时主动 abort，避免上下文无限膨胀拖垮推理速度。
         if (hasToolCalls) {
-          toolCallCount++;
           const tc = messageChunk.tool_calls[0];
           const toolName = tc?.name || 'unknown';
-          if (tc?.id) toolNameById.set(tc.id, toolName);
-          const argsStr = tc?.args ? JSON.stringify(tc.args) : '';
-          const argsPreview = argsStr.length > 80 ? argsStr.slice(0, 80) + '...' : argsStr;
-          this.logger.log(`[工具调用] #${toolCallCount} ${toolName}(${argsPreview})`);
+          const tcId = tc?.id;
+          if (tcId && !toolNameById.has(tcId)) {
+            toolNameById.set(tcId, toolName);
+            toolCallCount++;
+            const argsStr = tc?.args ? JSON.stringify(tc.args) : '';
+            const argsPreview = argsStr.length > 80 ? argsStr.slice(0, 80) + '...' : argsStr;
+            this.logger.log(`[工具调用] #${toolCallCount} ${toolName}(${argsPreview})`);
+            // 达到上限：主动中止本轮，把控制权交还给用户
+            if (toolCallCount >= MAX_TOOL_CALLS_PER_RUN) {
+              this.logger.warn(`[工具调用上限] 已达 ${MAX_TOOL_CALLS_PER_RUN} 次，主动中止本轮`);
+              abortController.abort(new Error('MAX_TOOL_CALLS'));
+            }
+          }
         }
         if (isToolResult) {
           toolResultCount++;
@@ -379,25 +522,32 @@ export class ModelsLangchainController {
       if (idleTimer) clearTimeout(idleTimer);
 
       const err = error as Error;
-      // 区分超时类型：IDLE_TIMEOUT（模型无响应）/ RUN_TIMEOUT（总超时）/ 其他异常
+      // 区分中止类型：MAX_TOOL_CALLS（达到工具调用上限，主动中止）/
+      //              IDLE_TIMEOUT（模型无响应）/ RUN_TIMEOUT（总超时）/ 其他异常
+      // 注意：abortController.abort() 抛出的 error 带有 ABORT_ERR 码，
+      //       必须先判断 MAX_TOOL_CALLS，否则会被误判为 RUN_TIMEOUT
+      const isMaxToolCalls = err.message === 'MAX_TOOL_CALLS';
       const isIdleTimeout = idleTimedOut || err.message === 'IDLE_TIMEOUT';
-      const isRunTimeout = err.message === 'RUN_TIMEOUT' || err.name === 'TimeoutError' || (err as any).code === 'ABORT_ERR';
-      if (isIdleTimeout) {
+      const isRunTimeout = !isMaxToolCalls && (err.message === 'RUN_TIMEOUT' || err.name === 'TimeoutError' || (err as any).code === 'ABORT_ERR');
+      if (isMaxToolCalls) {
+        this.logger.warn(`[工具调用上限] 本轮已执行 ${MAX_TOOL_CALLS_PER_RUN} 次工具调用，主动中止以避免上下文膨胀`);
+      } else if (isIdleTimeout) {
         this.logger.error(`[无活动超时] 模型连续 ${IDLE_TIMEOUT_MS / 1000}s 无输出，已中断: ${err.message}`);
       } else if (isRunTimeout) {
         this.logger.error(`[对话超时] Agent 执行超过 ${RUN_TIMEOUT_MS / 1000}s 被中断: ${err.message}`);
       } else {
         this.logger.error(`[对话异常] ${err.name}: ${err.message}`, err.stack);
       }
-      // 异常分支：向前端下发错误提示分片（错误作为思维链的 error 节点下发），
-      // 保证流有正常结束标记，前端不会无限等待
-      const errText = isIdleTimeout
-        ? '模型长时间无响应，已中断'
-        : isRunTimeout
-          ? '任务执行超时，已中断'
-          : '服务异常，请稍后重试';
+      // 异常分支：向前端下发提示分片，保证流有正常结束标记，前端不会无限等待
+      const errText = isMaxToolCalls
+        ? `本轮已执行 ${MAX_TOOL_CALLS_PER_RUN} 次工具调用，任务较大已暂停。已完成的工作已保存，请告知我继续或调整方向。`
+        : isIdleTimeout
+          ? '模型长时间无响应，已中断'
+          : isRunTimeout
+            ? '任务执行超时，已中断'
+            : '服务异常，请稍后重试';
       const errPayload = JSON.stringify({
-        choices: [{ delta: { content: `\n\n<think><node title="错误">${errText}</node></think>\n\n⚠️ ${errText}` } }],
+        choices: [{ delta: { content: `\n\n<think><node title="提示">${errText}</node></think>\n\n${isMaxToolCalls ? '⏸️' : '⚠️'} ${errText}` } }],
         sessionId,
       });
       res.write(`data: ${errPayload}\n\n`);
@@ -431,6 +581,33 @@ export class ModelsLangchainController {
    */
   private get memoryDir(): string {
     return path.join(os.homedir(), ".makefile_claw", "memory");
+  }
+
+  /**
+   * AI 工作区目录：~/.makefile_claw/workspaces
+   * 与 createMakefileClawAgent 中 LocalShellBackend 的 rootDir 保持一致，
+   * AI 的所有文件操作被 deepagents 限制在此目录内。
+   */
+  private get workspaceDir(): string {
+    return path.join(os.homedir(), ".makefile_claw", "workspaces");
+  }
+
+  /**
+   * 安全解析工作区内的相对路径，禁止 .. 越界访问工作区之外的目录。
+   * @param relPath 相对于工作区根的路径（允许空字符串表示根目录）
+   * @returns 解析后的绝对路径
+   * @throws Error 若路径越界或包含非法片段
+   */
+  private resolveWorkspacePath(relPath: string): string {
+    const root = path.resolve(this.workspaceDir);
+    // 规范化路径：去除首尾斜杠，合并重复分隔符
+    const normalized = relPath.replace(/^[\\/]+/, "").replace(/\\/g, "/");
+    const resolved = path.resolve(root, normalized);
+    const relative = path.relative(root, resolved);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new Error("路径越界：不允许访问工作区之外的目录");
+    }
+    return resolved;
   }
 
   /**
@@ -757,6 +934,107 @@ export class ModelsLangchainController {
     } catch (error) {
       console.error("[getSessionMessages] error:", error);
       res.status(500).json({ error: "Failed to load session messages" });
+    }
+  }
+
+  // ==========================================================
+  // 工作区文件浏览相关接口（供前端 Folder 组件展示工作区内容）
+  // ==========================================================
+
+  /**
+   * 递归构建工作区目录树
+   * @param dir 绝对目录路径
+   * @param relBase 相对于工作区根的路径前缀（用 / 分隔）
+   * @param depth 当前递归深度（防止过深目录栈溢出，限制到 20 层）
+   */
+  private buildWorkspaceTree(dir: string, relBase: string, depth: number): WorkspaceTreeNode[] {
+    if (depth > 20) return [];
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+    const nodes: WorkspaceTreeNode[] = [];
+    for (const entry of entries) {
+      // 跳过隐藏文件（如 .git）和 node_modules，避免树过大
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const relPath = relBase ? `${relBase}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        const fullPath = path.join(dir, entry.name);
+        nodes.push({
+          title: entry.name,
+          path: relPath,
+          isLeaf: false,
+          children: this.buildWorkspaceTree(fullPath, relPath, depth + 1),
+        });
+      } else if (entry.isFile()) {
+        nodes.push({
+          title: entry.name,
+          path: relPath,
+          isLeaf: true,
+        });
+      }
+    }
+    // 目录在前、文件在后，各自按名称排序
+    nodes.sort((a, b) => {
+      if (a.isLeaf !== b.isLeaf) return a.isLeaf ? 1 : -1;
+      return a.title.localeCompare(b.title);
+    });
+    return nodes;
+  }
+
+  /**
+   * 获取工作区目录树
+   * GET /models-streaming/workspace/tree
+   *
+   * 递归扫描 ~/.makefile_claw/workspaces，返回文件夹树（供前端 Folder 组件渲染）。
+   * 跳过隐藏文件与 node_modules，递归深度上限 20 层。
+   */
+  @Get("workspace/tree")
+  getWorkspaceTree(@Res() res: any) {
+    try {
+      const root = this.workspaceDir;
+      if (!fs.existsSync(root)) {
+        fs.mkdirSync(root, { recursive: true });
+      }
+      const tree = this.buildWorkspaceTree(root, "", 0);
+      res.json({ tree });
+    } catch (error) {
+      console.error("[getWorkspaceTree] error:", error);
+      res.status(500).json({ error: "Failed to list workspace" });
+    }
+  }
+
+  /**
+   * 读取工作区内指定文件的内容
+   * GET /models-streaming/workspace/file?path=xxx
+   *
+   * path 为相对于工作区根的路径（如 "subdir/file.txt"）。
+   * 安全校验：禁止 .. 越界访问工作区外目录；仅允许读取文本文件。
+   * 返回 { content, size }。
+   */
+  @Get("workspace/file")
+  getWorkspaceFile(@Res() res: any, @Query("path") relPath?: string) {
+    try {
+      const rawPath = String(relPath ?? "");
+      const absPath = this.resolveWorkspacePath(rawPath);
+      if (!fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) {
+        res.status(404).json({ error: "File not found" });
+        return;
+      }
+      const stat = fs.statSync(absPath);
+      // 限制单文件读取上限 2MB，避免大文件撑爆响应
+      const MAX_BYTES = 2 * 1024 * 1024;
+      if (stat.size > MAX_BYTES) {
+        res.status(413).json({ error: `File too large (${stat.size} bytes), max ${MAX_BYTES}` });
+        return;
+      }
+      const content = fs.readFileSync(absPath, "utf-8");
+      res.json({ content, size: stat.size });
+    } catch (error: any) {
+      console.error("[getWorkspaceFile] error:", error?.message || error);
+      res.status(400).json({ error: error?.message || "Failed to read file" });
     }
   }
 }

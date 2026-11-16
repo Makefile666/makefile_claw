@@ -4,6 +4,7 @@ import { AgentsModule } from './agents/agents.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { ClawConfigModule } from './claw-config/claw-config.module.js';
+import { McpModule } from './mcp/mcp.module.js';
 import { ModelsModule } from './models/models.module.js';
 import { SkillsModule } from './skills/skills.module.js';
 import { ToolsModule } from './tools/tools.module.js';
@@ -25,6 +26,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     ModelsModule,
     ToolsModule,
     SkillsModule,
+    McpModule,
   ],
   controllers: [AppController],
   providers: [AppService],

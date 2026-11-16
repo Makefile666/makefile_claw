@@ -217,15 +217,15 @@ flowchart TB
         U[/"👤 用户输入消息\n选择 Agent + Skills"/]
         SM["sendMessage(content)\nchatbot/index.tsx"]
         XCHAT["useXChat onRequest()\n@ant-design/x-sdk"]
-        CF["customFetch(getAgent, getSkills)\nchatbot/service.ts"]
-        REQ["GET /models-streaming\n?input=&chatId=&agent=&skills="]
+        CF["customFetch(getAgent, getSkills, getAttachments)\nchatbot/service.ts"]
+        REQ["POST /models-streaming\nbody: {input, chatId, agent, skills, attachments}"]
         SSE["SSE 流式接收\nOpenAIChatProvider"]
         PARSE["parser 拆分 think / node\n渲染 Bubble + ThoughtChain"]
     end
 
     subgraph BE["⚙️ 后端 NestJS (apps/api)"]
         direction TB
-        CTRL["ModelsLangchainController\nGET /models-streaming"]
+        CTRL["ModelsLangchainController\nPOST /models-streaming"]
         SKILLS["SkillsService.findOne()\n加载 SKILL.md 正文"]
         AGENT["createMakefileClawAgent()\npackages/agent-core"]
         STREAM["agent.stream()\nstreamMode:'messages'"]
@@ -249,7 +249,7 @@ flowchart TB
     end
 
     U --> SM --> XCHAT --> CF --> REQ
-    REQ -->|"HTTP GET (SSE)"| CTRL
+    REQ -->|"HTTP POST (SSE)"| CTRL
     CTRL -->|"skillNames"| SKILLS
     SKILLS -->|"读取"| SKDIR
     SKILLS -->|"skillsContent"| AGENT
@@ -293,8 +293,8 @@ flowchart TB
       <p><code>sendMessage</code> 取 <code>chatId = threadIdMapRef.current[activeKey]</code>（新会话为空），调用 <code>onRequest({ messages, chatId })</code>。</p>
     </div>
     <div class="stage fe">
-      <h4>1.3 改写为 GET</h4>
-      <p><code>customFetch</code> 取最后一条 user 消息为 <code>input</code>，拼 <code>agent</code>、<code>skills</code>（逗号分隔），发起 <code>GET /models-streaming?input=&chatId=&agent=&skills=</code>。</p>
+      <h4>1.3 改写为 POST</h4>
+      <p><code>customFetch</code> 取最后一条 user 消息为 <code>input</code>，连同 <code>agent</code>、<code>skills</code>（逗号分隔）、<code>attachments</code>（图片+文档 base64 数组），以 <code>POST /models-streaming</code> 发送 JSON body：<br/><code>{ input, chatId, agent, skills, attachments }</code>。</p>
     </div>
   </div>
 
@@ -302,18 +302,25 @@ flowchart TB
   <div class="stage-grid">
     <div class="stage be">
       <h4>2.1 入口校验</h4>
-      <p><code>ModelsLangchainController.test()</code> 校验 <code>input</code>，设置 SSE 响应头（<code>text/event-stream</code>、<code>no-cache</code>、<code>keep-alive</code>），<code>flushHeaders</code> 立即推送。</p>
+      <p><code>ModelsLangchainController.test()</code> 从 <code>@Body()</code> 解构 <code>{ input, chatId, skills, agent, attachments }</code>，校验 <code>input</code>，设置 SSE 响应头（<code>text/event-stream</code>、<code>no-cache</code>、<code>keep-alive</code>），<code>flushHeaders</code> 立即推送。</p>
     </div>
     <div class="stage be">
-      <h4>2.2 加载技能</h4>
+      <h4>2.2 附件处理（图片/文档）</h4>
+      <p>遍历 <code>attachments</code> 数组（每项 <code>{name, type, data(base64)}</code>）：<br/>
+      • <strong>图片</strong>（<code>image/*</code>）：构造 <code>data:{mime};base64,{data}</code>，作为多模态内容传给模型识别<br/>
+      • <strong>文档</strong>（docx/xlsx/pdf/txt 等）：<code>mammoth</code>/<code>xlsx</code>/<code>pdf-parse</code> 提取纯文本，拼接到 <code>input</code> 前面<br/>
+      最终 <code>userContent</code> = 有图片时为多模态数组 <code>[{type:'text',text:input}, ...imageParts]</code>，否则为纯文本。</p>
+    </div>
+    <div class="stage be">
+      <h4>2.3 加载技能</h4>
       <p>遍历 <code>skillNames</code>，<code>skillsService.findOne(name)</code> 读取 <code>~/.makefile_claw/skills/&lt;name&gt;/SKILL.md</code>，过滤 <code>active</code>，重写路径引用后拼接为 <code>skillsContent</code>。</p>
     </div>
     <div class="stage be">
-      <h4>2.3 会话 ID</h4>
+      <h4>2.4 会话 ID</h4>
       <p><code>threadId = chatId || randomUUID()</code>，<code>sessionId = threadId</code>。首次对话生成新 UUID，后续复用 chatId 从检查点恢复上下文。</p>
     </div>
     <div class="stage be">
-      <h4>2.4 创建 Agent</h4>
+      <h4>2.5 创建 Agent</h4>
       <p><code>createMakefileClawAgent(agentName, threadId, undefined, skillsContent)</code> 内部：<br/>
       • <code>FileSaver</code> 绑定 <code>~/.makefile_claw/memory/&lt;threadId&gt;.json</code><br/>
       • <code>readConfigByAgentName</code> 读 agent 配置 → <code>readConfigByModelName</code> 读模型配置 → <code>initStreamModel</code> 创建 <code>ChatOpenAI</code><br/>
@@ -327,7 +334,7 @@ flowchart TB
   <div class="stage-grid">
     <div class="stage ai">
       <h4>3.1 发起流式调用</h4>
-      <p><code>agent.stream({ messages:[{role:'user',content:input}] }, { streamMode:'messages', configurable:{thread_id}, recursionLimit:100, signal })</code>。超时：总 300s / 无活动 90s。</p>
+      <p><code>agent.stream({ messages:[{role:'user',content:userContent}] }, { streamMode:'messages', configurable:{thread_id}, recursionLimit:100, signal })</code>。超时：总 600s / 无活动 90s。</p>
     </div>
     <div class="stage ai">
       <h4>3.2 Agent 循环</h4>

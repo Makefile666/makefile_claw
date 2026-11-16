@@ -327,6 +327,12 @@ export default [
         icon: 'thunderbolt',
         component: './agents/Skills',
       },
+      {
+        path: '/agents/mcp',
+        name: 'mcp',
+        icon: 'api',
+        component: './agents/Mcp',
+      },
     ],
   },
   {

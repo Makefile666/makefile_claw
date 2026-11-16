@@ -18,14 +18,19 @@ export class ClawConfigController {
 
   /**
    * 整体保存配置（覆盖写入 .makefile_claw/makefile_claw.json）
-   * ⚠️ models 和 tools 字段受保护：始终以磁盘上的最新数据为准，
+   * ⚠️ models、tools、mcpServers 字段受保护：始终以磁盘上的最新数据为准，
    *    不允许通过本接口覆盖，避免与各自独立接口并发读写时互相覆盖。
-   *    models 的增删改请统一走 /api/models，tools 走 /api/tools。
+   *    models 的增删改请统一走 /api/models，tools 走 /api/tools，mcpServers 走 /api/mcp。
    */
   @Put('config')
   saveConfig(@Body() config: ClawConfig): ApiResponse<ClawConfig> {
     const current = this.clawConfigService.readConfig();
-    const toSave: ClawConfig = { ...config, models: current.models, tools: current.tools };
+    const toSave: ClawConfig = {
+      ...config,
+      models: current.models,
+      tools: current.tools,
+      mcpServers: current.mcpServers,
+    };
     this.clawConfigService.saveConfig(toSave);
     return success(this.clawConfigService.readConfig());
   }

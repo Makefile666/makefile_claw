@@ -3,6 +3,7 @@ import { BUILTIN_TOOLS } from './types';
 import type {
   AgentConfig,
   ClawConfig,
+  McpServerConfig,
   ModelConfig,
   SkillConfig,
   ToolConfig,
@@ -38,6 +39,7 @@ const DEFAULT_CONFIG: ClawConfig = {
   agents: [],
   models: [],
   tools: BUILTIN_TOOLS,
+  mcpServers: [],
 };
 /**
  * 【重点兼容迁移函数】migrateAgent
@@ -79,6 +81,7 @@ const readConfig = (): ClawConfig => {
       agents: (parsed.agents ?? []).map((a) => migrateAgent(a as unknown as Record<string, unknown>)),
       models: parsed.models ?? [],
       tools: parsed.tools?.length ? parsed.tools : structuredClone(BUILTIN_TOOLS),
+      mcpServers: parsed.mcpServers ?? [],
     };
   } catch {
     return structuredClone(DEFAULT_CONFIG);
@@ -321,6 +324,77 @@ export async function toggleSkillActive(
   const res = await request<{ code: number; data: SkillConfig; msg: string }>(
     `${BASE_URL}/skills/${name}/active`,
     { method: 'PATCH', data: { active } },
+  );
+  return res.data;
+}
+
+// ---------- MCP 服务器增删改查【独立 REST 接口】 ----------
+// 对接后端 /api/mcp，管理远程 MCP 服务器配置（url + headers + name + active）
+// name 为唯一标识：GET/PUT/DELETE /api/mcp/:name
+
+/**
+ * 获取全部 MCP 服务器列表
+ * GET /api/mcp
+ */
+export async function listMcpServers(): Promise<McpServerConfig[]> {
+  const res = await request<{ code: number; data: McpServerConfig[]; msg: string }>(
+    `${BASE_URL}/mcp`,
+    { method: 'GET' },
+  );
+  return res.data;
+}
+
+/**
+ * 新建 MCP 服务器
+ * POST /api/mcp
+ * name 为唯一标识，由前端填写
+ */
+export async function createMcpServer(server: McpServerConfig): Promise<McpServerConfig> {
+  const res = await request<{ code: number; data: McpServerConfig; msg: string }>(
+    `${BASE_URL}/mcp`,
+    { method: 'POST', data: server },
+  );
+  return res.data;
+}
+
+/**
+ * 更新 MCP 服务器
+ * PUT /api/mcp/:name
+ * 仅传递需要修改的字段 patch
+ */
+export async function updateMcpServer(
+  name: string,
+  patch: Partial<McpServerConfig>,
+): Promise<McpServerConfig | undefined> {
+  const res = await request<{ code: number; data: McpServerConfig; msg: string }>(
+    `${BASE_URL}/mcp/${name}`,
+    { method: 'PUT', data: patch },
+  );
+  return res.data;
+}
+
+/**
+ * 删除 MCP 服务器
+ * DELETE /api/mcp/:name
+ */
+export async function deleteMcpServer(name: string): Promise<void> {
+  await request<{ code: number; data: null; msg: string }>(
+    `${BASE_URL}/mcp/${name}`,
+    { method: 'DELETE' },
+  );
+}
+
+/**
+ * 切换 MCP 服务器启用状态（active 0/1）
+ * 仅传 active 字段，其余字段由后端保留
+ */
+export async function toggleMcpServerActive(
+  name: string,
+  active: boolean,
+): Promise<McpServerConfig | undefined> {
+  const res = await request<{ code: number; data: McpServerConfig; msg: string }>(
+    `${BASE_URL}/mcp/${name}`,
+    { method: 'PUT', data: { active: active ? 1 : 0 } },
   );
   return res.data;
 }

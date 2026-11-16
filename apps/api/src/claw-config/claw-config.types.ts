@@ -37,10 +37,26 @@ export interface AgentConfig {
   active: number;
 }
 
+export interface McpServerConfig {
+  /** 服务器名称，唯一键，仅用于日志区分 */
+  name: string;
+  /** 远程 MCP 服务器的 Streamable HTTP 端点地址 */
+  url: string;
+  /** HTTP 请求头，最常见是鉴权用的 Authorization: Bearer <token> */
+  headers?: Record<string, string>;
+  /** 是否启用（0-未启用，1-已启用），启用后可在 chatbot 页面选择 */
+  active: number;
+  /** 创建时间（ISO 字符串） */
+  createdAt?: string;
+  /** 更新时间（ISO 字符串） */
+  updatedAt?: string;
+}
+
 export interface ClawConfig {
   agents: AgentConfig[];
   models: ModelConfig[];
   tools: ToolConfig[];
+  mcpServers: McpServerConfig[];
 }
 
 export const BUILTIN_TOOLS: ToolConfig[] = [
@@ -98,4 +114,5 @@ export const DEFAULT_CONFIG: ClawConfig = {
   agents: [],
   models: [],
   tools: BUILTIN_TOOLS,
+  mcpServers: [],
 };

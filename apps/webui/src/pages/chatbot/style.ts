@@ -39,6 +39,82 @@ export const useStyles = createStyles(({ css, token }) => ({
     background: ${token.colorBgContainer};
   `,
 
+  // 三栏之间的拖拽条：4px 宽，hover 时高亮，鼠标变为水平调整大小
+  resizer: css`
+    width: 4px;
+    flex-shrink: 0;
+    cursor: col-resize;
+    background: transparent;
+    position: relative;
+    transition: background 0.15s;
+
+    &:hover,
+    &:active {
+      background: ${token.colorPrimaryBorder};
+    }
+
+    /* 拖动时隐藏文本选中，避免拖动过程中选中页面文字 */
+    user-select: none;
+  `,
+
+  folderPane: css`
+    width: 320px;
+    background: ${token.colorBgContainer};
+    border-left: 1px solid ${token.colorBorderSecondary};
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+
+    /* Folder 组件内部的目录树滚动条隐藏，保持视觉简洁 */
+    .ant-folder,
+    .ant-folder-directory-tree {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    .ant-folder::-webkit-scrollbar,
+    .ant-folder-directory-tree::-webkit-scrollbar {
+      display: none;
+    }
+
+    /* 代码预览区：highlight.js 代码块样式优化 */
+    .ant-folder-preview {
+      pre {
+        margin: 0;
+      }
+      .hljs {
+        background: transparent;
+        padding: 0;
+      }
+    }
+  `,
+
+  folderHeader: css`
+    padding: 12px 16px;
+    border-bottom: 1px solid ${token.colorBorderSecondary};
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+
+    .folder-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: ${token.colorText};
+    }
+
+    .folder-path {
+      font-size: 11px;
+      color: ${token.colorTextTertiary};
+      margin-top: 2px;
+      word-break: break-all;
+    }
+  `,
+
+  folderBody: css`
+    flex: 1;
+    overflow: hidden;
+  `,
+
   messages: css`
     flex: 1;
     overflow-y: auto;

@@ -9,9 +9,15 @@ const configPath = join(
     'makefile_claw.json',
 );
 
-// 2. 读取配置文件中的智能体配置信息
-const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-// console.log(config);
+/**
+ * 2. 读取配置文件。
+ * 注意：必须每次调用都从磁盘重新读取，不能在模块加载时缓存。
+ * 配置文件会被 Web UI 实时修改（新增/改名 Agent、Model），
+ * 若缓存到模块作用域，本进程在不重启的情况下永远读不到新配置。
+ */
+function loadConfig(): any {
+    return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+}
 
 
 // 功能一、 读取到 agents 智能体的相关配置（agentsConfig）
@@ -22,7 +28,7 @@ export function readConfigByAgentName(agentName: string) {
 
     try {
         // 3. 根据智能体名称从 agents 数组中查找对应配置
-        const agentsConfig = config.agents?.find((a: { name: string }) => a.name === agentName);
+        const agentsConfig = loadConfig().agents?.find((a: { name: string }) => a.name === agentName);
         // console.log(agentsConfig);
 
         // 4. 没找到对应智能体配置，返回 null
@@ -46,7 +52,7 @@ export function readConfigByModelName(modelName: string) {
     
     try {
         // 3. 根据模型名称从 models 数组中查找对应配置
-        const modelsConfig = config.models?.find((m: { name: string }) => m.name === modelName);
+        const modelsConfig = loadConfig().models?.find((m: { name: string }) => m.name === modelName);
         // console.log(modelsConfig);
 
         // 4. 没找到对应模型配置，返回 null

@@ -259,7 +259,7 @@ export class ModelsLangchainController {
       created = await createMakefileClawAgent(
         agentName,
         threadId,
-        { fileTools: true, shellTools: true, webTools: true, remoteServers },
+        { fileTools: true, shellTools: true, puppeteerTools: true, webTools: true, remoteServers },
         skillsContent,
       );
     } catch (e) {

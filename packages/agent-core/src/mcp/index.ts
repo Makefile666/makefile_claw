@@ -3,6 +3,8 @@
 // 将 MCP 工具列表转换为 LangChain 工具，供 createAgent 使用。
 
 import path from 'node:path';
+import os from 'node:os';
+import fs from 'node:fs';
 import { exec } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 
@@ -70,16 +72,23 @@ async function killMcpTree(cp?: ChildProcess): Promise<boolean> {
 /**
  * 读取 MCP 服务端工具列表，转换为 LangChain 可用的工具对象数组。
  * afterCall 是可选守卫，在每次工具调用返回后触发，用来在代码层托管终端状态。
+ * excludeNames 是需要排除的工具名列表（用于避免与 deepagents 内置工具重名冲突）。
  */
 async function convertMcpToolsToLangChainTools(
     client: Client,
     afterCall?: (name: string, input: any, result: any) => void | Promise<void>,
+    excludeNames: string[] = [],
 ) {
     // 获取 MCP 服务器中的工具列表
     const { tools } = await client.listTools();
-    // 将 MCP 工具列表转换为 LangChain 格式，过滤掉 shell_execute（由 terminal_* 系列工具替代）
+    // 将 MCP 工具列表转换为 LangChain 格式：
+    // - 过滤掉 shell_execute（由 terminal_* 系列工具替代）
+    // - 过滤掉与 deepagents 内置文件系统工具重名的工具（read_file/write_file/edit_file/ls/glob/grep/delete/execute），
+    //   避免 createDeepAgent 抛出 "Tool name(s) conflict with built-in tools" 错误。
+    //   deepagents 内置工具已通过 virtualMode 限制在工作区内，功能等价且更安全。
+    const excludeSet = new Set(['shell_execute', ...excludeNames]);
     return tools
-        .filter((item: any) => item.name !== 'shell_execute')
+        .filter((item: any) => !excludeSet.has(item.name))
         .map((item: any) =>
             tool(
                 async (input: any) => {
@@ -134,7 +143,12 @@ async function loadMcpFileTools(workspace: string) {
     // 发起连接：启动子进程、执行 MCP 协议握手，完成客户端与服务端的协议初始化
     await client.connect(transport);
 
-    const fileTools = await convertMcpToolsToLangChainTools(client);
+    // deepagents 内置文件系统中间件（createFilesystemMiddleware）已提供以下工具，
+    // 且通过 virtualMode 严格限制在工作区内，需排除 File MCP 中的同名工具避免冲突。
+    const DEEPAGENTS_BUILTIN_FS_TOOLS = [
+        'ls', 'read_file', 'write_file', 'edit_file', 'delete', 'glob', 'grep', 'execute',
+    ];
+    const fileTools = await convertMcpToolsToLangChainTools(client, undefined, DEEPAGENTS_BUILTIN_FS_TOOLS);
 
     // connect 成功后再从 transport 取内部 spawn 子进程，属性名兼容不同 SDK 版本
     const childProcess: ChildProcess | undefined =
@@ -168,7 +182,7 @@ async function loadMcpShellTools() {
             MCP_SHELL_LLM_TIMEOUT: '30',
             MCP_SHELL_ALLOWED_WORKDIRS: [
                 path.resolve(process.cwd()),
-                path.resolve(process.env.MAKEFILE_CLAW_WORKSPACE ?? path.join(process.env.HOME ?? '~', '.makefile_claw', 'workspaces')),
+                path.resolve(process.env.MAKEFILE_CLAW_WORKSPACE ?? path.join(os.homedir(), '.makefile_claw', 'workspaces')),
             ].join(','),
             MCP_SHELL_ELICITATION: 'false',
             MCP_SHELL_MAX_EXECUTION_TIME: '300',
@@ -180,8 +194,10 @@ async function loadMcpShellTools() {
         stderr: 'pipe',
     });
 
-    transport.stderr?.on('data', () => {
-        /* swallow shell server stderr noise */
+    // Shell MCP 服务器的 stderr 可能包含启动错误（如路径不存在、原生模块加载失败等），
+    // 之前被完全吞掉导致 "Connection closed" 难以排查。这里打印到 stderr 便于诊断。
+    transport.stderr?.on('data', (buf) => {
+        console.error('[Shell MCP stderr]', buf.toString());
     });
 
     // 发起连接
@@ -246,6 +262,98 @@ async function loadMcpShellTools() {
     return { shellTools, client, cleanupTerminals, childProcess };
 }
 
+/**
+ * 探测系统已安装的 Chrome/Chromium 可执行文件路径。
+ * 优先级：环境变量 PUPPETEER_EXECUTABLE_PATH / CHROME_PATH > 常见安装位置自动探测。
+ * Puppeteer 读取 PUPPETEER_EXECUTABLE_PATH 后会直接使用该浏览器，无需再下载 Chromium。
+ */
+function detectChromeExecutable(): string | undefined {
+    // 1. 显式环境变量优先
+    const fromEnv = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH;
+    if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
+
+    const candidates: string[] = [];
+    if (process.platform === 'win32') {
+        candidates.push(
+            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+            path.join(os.homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+            'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+            'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+        );
+    } else if (process.platform === 'darwin') {
+        candidates.push(
+            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+            '/Applications/Chromium.app/Contents/MacOS/Chromium',
+            '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+        );
+    } else {
+        candidates.push(
+            '/usr/bin/google-chrome',
+            '/usr/bin/google-chrome-stable',
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            '/snap/bin/chromium',
+        );
+    }
+
+    for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+    }
+    return undefined;
+}
+
+/**
+ * 拉起 Puppeteer MCP 服务、建立 Stdio 连接，拉取并转换为 LangChain 工具。
+ * 提供浏览器自动化能力（导航、截图、点击、填写表单、执行 JS 等），
+ * 让 Agent 能在真实浏览器中运行/验证前端代码。
+ * 工具名均以 puppeteer_ 为前缀，与 deepagents 内置工具无冲突。
+ * 优先使用系统已安装的 Chrome（通过 PUPPETEER_EXECUTABLE_PATH），避免重复下载 Chromium。
+ */
+async function loadMcpPuppeteerTools() {
+    const client = new Client({
+        name: 'mcp-puppeteer-stdio-client',
+        version: '1.0.0',
+    });
+
+    // 探测系统 Chrome，传给 Puppeteer 避免下载 Chromium
+    const chromePath = detectChromeExecutable();
+    if (chromePath) {
+        console.log(`[Puppeteer MCP] 使用系统浏览器: ${chromePath}`);
+    } else {
+        console.warn('[Puppeteer MCP] 未找到系统 Chrome/Edge，将尝试使用 Puppeteer 内置 Chromium（可能需要下载）');
+    }
+
+    const transport = new StdioClientTransport({
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-puppeteer'],
+        env: {
+            ...process.env,
+            ...(chromePath ? { PUPPETEER_EXECUTABLE_PATH: chromePath } : {}),
+            NPM_CONFIG_LOGLEVEL: 'silent',
+            NPM_CONFIG_FUND: 'false',
+            NODE_NO_WARNINGS: '1',
+        },
+        stderr: 'pipe',
+    });
+
+    transport.stderr?.on('data', (buf) => {
+        console.error('[Puppeteer MCP stderr]', buf.toString());
+    });
+
+    await client.connect(transport);
+
+    const puppeteerTools = await convertMcpToolsToLangChainTools(client);
+
+    const childProcess: ChildProcess | undefined =
+        (transport as any).process ?? (transport as any)._process;
+    if (REGISTRY_DEBUG) {
+        console.log(`[MCP PUPPETEER CHILD] pid=${childProcess?.pid ?? 'none'}`);
+    }
+
+    return { puppeteerTools, client, childProcess };
+}
+
 export interface RemoteMcpServer {
     /** 服务器名称，仅用于日志区分 */
     name: string;
@@ -258,6 +366,8 @@ export interface RemoteMcpServer {
 export interface ToolsEnable {
     fileTools?: boolean;
     shellTools?: boolean;
+    /** 浏览器自动化工具（Puppeteer MCP），用于在真实浏览器中运行/验证前端代码 */
+    puppeteerTools?: boolean;
     webTools?: boolean;
     /** 远程 MCP 服务器列表（通过 Streamable HTTP 连接，如 GitHub MCP） */
     remoteServers?: RemoteMcpServer[];
@@ -357,27 +467,51 @@ export async function loadMcpTools(
     const tools: any[] = [];
     let fileClient: Client | undefined;
     let shellClient: Client | undefined;
+    let puppeteerClient: Client | undefined;
     // 缓存 Shell 终端统一清理函数，连接断开前必须先执行
     let shellCleanup: (() => Promise<void>) | undefined;
-    // 只保存两个 MCP 传输层的子进程引用，运行过程中不做任何操作，close 时统一强杀
+    // 保存本地 MCP 传输层的子进程引用，运行过程中不做任何操作，close 时统一强杀
     let fileChildProcess: ChildProcess | undefined;
     let shellChildProcess: ChildProcess | undefined;
+    let puppeteerChildProcess: ChildProcess | undefined;
     // 远程 MCP 客户端列表（Streamable HTTP，无本地子进程）
     const remoteClients: Client[] = [];
 
     if (toolsEnable.fileTools) {
-        const { fileTools, client, childProcess } = await loadMcpFileTools(workspace);
-        tools.push(...fileTools);
-        fileClient = client;
-        fileChildProcess = childProcess;
+        try {
+            const { fileTools, client, childProcess } = await loadMcpFileTools(workspace);
+            tools.push(...fileTools);
+            fileClient = client;
+            fileChildProcess = childProcess;
+        } catch (err) {
+            // 文件 MCP 加载失败不应阻断 Agent 创建，记录后继续（Agent 仍有 deepagents 内置文件工具可用）
+            console.error('[File MCP 加载失败]', err);
+        }
     }
 
     if (toolsEnable.shellTools) {
-        const { shellTools, client, cleanupTerminals, childProcess } = await loadMcpShellTools();
-        tools.push(...shellTools);
-        shellClient = client;
-        shellCleanup = cleanupTerminals;
-        shellChildProcess = childProcess;
+        try {
+            const { shellTools, client, cleanupTerminals, childProcess } = await loadMcpShellTools();
+            tools.push(...shellTools);
+            shellClient = client;
+            shellCleanup = cleanupTerminals;
+            shellChildProcess = childProcess;
+        } catch (err) {
+            // Shell MCP 加载失败不应阻断 Agent 创建，记录后继续（Agent 仍有 deepagents 内置 execute 工具可用）
+            console.error('[Shell MCP 加载失败]', err);
+        }
+    }
+
+    if (toolsEnable.puppeteerTools) {
+        try {
+            const { puppeteerTools, client, childProcess } = await loadMcpPuppeteerTools();
+            tools.push(...puppeteerTools);
+            puppeteerClient = client;
+            puppeteerChildProcess = childProcess;
+        } catch (err) {
+            // Puppeteer MCP 加载失败不应阻断 Agent 创建，记录后继续（可能是 Chromium 未安装/网络问题）
+            console.error('[Puppeteer MCP 加载失败]', err);
+        }
     }
 
     // 加载远程 MCP 服务器（Streamable HTTP），如 GitHub MCP 等。
@@ -408,12 +542,14 @@ export async function loadMcpTools(
             await Promise.allSettled([
                 killMcpTree(fileChildProcess),
                 killMcpTree(shellChildProcess),
+                killMcpTree(puppeteerChildProcess),
             ]);
 
             // 第三步：关闭所有 MCP 客户端连接（本地 stdio + 远程 HTTP）
             await Promise.allSettled([
                 fileClient?.close(),
                 shellClient?.close(),
+                puppeteerClient?.close(),
                 ...remoteClients.map((c) => c.close()),
             ]);
         },

@@ -1,5 +1,0 @@
-$kind: http-request
-name: findOne
-url: http://localhost:3000/api/models/GPT-4o
-method: GET
-order: 2000

@@ -1,6 +1,0 @@
-$kind: http-request
-url: http://localhost:3000/models-streaming?input=你是谁？
-method: GET
-queryParams:
-  input: 你是谁？
-order: 6000

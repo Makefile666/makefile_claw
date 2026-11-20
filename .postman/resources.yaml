@@ -1,7 +1,0 @@
-# Use this workspace to collaborate
-workspace:
-  id: a557bc36-8908-482a-84c3-0fc527ef7408
-
-localResources:
-  specs:
-    - ../apps/webui/config/oneapi.json

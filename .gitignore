@@ -51,3 +51,6 @@ coverage/
 *.tgz
 .npm/
 .yarn-integrity
+
+
+.claude/

@@ -33,7 +33,7 @@ const KILL_TREE_TIMEOUT_MS = 5_000;
  * 关闭 MCP 进程以及它的整棵子进程树。Windows 用 taskkill，其他平台退化为直接 kill。
  * 只在 close 阶段调用，运行过程中绝不触发。
  */
-async function killMcpTree(cp?: ChildProcess): Promise<boolean> {
+export async function killMcpTree(cp?: ChildProcess): Promise<boolean> {
     const pid = cp?.pid;
     if (!pid) return false;
 
@@ -116,7 +116,7 @@ async function convertMcpToolsToLangChainTools(
  * 拉起文件系统 MCP 服务、建立 Stdio 连接，拉取并转换为 LangChain 工具。
  * 同时返回工具数组与 MCP 客户端实例，方便外部使用工具以及后续释放子进程资源。
  */
-async function loadMcpFileTools(workspace: string) {
+export async function loadMcpFileTools(workspace: string) {
     // 实例化 MCP 客户端，name 和 version 用于标识这个客户端，服务端会记录来源信息
     const client = new Client({
         name: 'mcp-file-stdio-client',
@@ -164,7 +164,7 @@ async function loadMcpFileTools(workspace: string) {
  * 初始化 Shell MCP 客户端，建立 Stdio 通信链路、拉取并转换 Shell MCP 工具列表。
  * 返回工具列表、客户端实例与终端统一清理函数，方便后续释放终端和子进程资源。
  */
-async function loadMcpShellTools() {
+export async function loadMcpShellTools() {
     // 实例化 MCP 客户端
     const client = new Client({
         name: 'mcp-shell-stdio-client',
@@ -310,7 +310,7 @@ function detectChromeExecutable(): string | undefined {
  * 工具名均以 puppeteer_ 为前缀，与 deepagents 内置工具无冲突。
  * 优先使用系统已安装的 Chrome（通过 PUPPETEER_EXECUTABLE_PATH），避免重复下载 Chromium。
  */
-async function loadMcpPuppeteerTools() {
+export async function loadMcpPuppeteerTools() {
     const client = new Client({
         name: 'mcp-puppeteer-stdio-client',
         version: '1.0.0',
@@ -383,7 +383,7 @@ export interface LoadedMcpTools {
  * 适用于公网 MCP 服务，例如 GitHub MCP（https://api.githubcopilot.com/mcp）。
  * 鉴权通过 headers 传入 Bearer Token。
  */
-async function loadRemoteMcpTools(server: RemoteMcpServer) {
+export async function loadRemoteMcpTools(server: RemoteMcpServer) {
     const client = new Client({
         name: `mcp-remote-${server.name}`,
         version: '1.0.0',
@@ -417,7 +417,7 @@ async function loadRemoteMcpTools(server: RemoteMcpServer) {
  *   GITHUB_TOKEN / GH_TOKEN  → 自动连接 GitHub MCP（https://api.githubcopilot.com/mcp）
  *   MCP_REMOTE_SERVERS       → JSON 数组，格式同 RemoteMcpServer[]，用于自定义远程服务器
  */
-function resolveRemoteServers(toolsEnable: ToolsEnable): RemoteMcpServer[] {
+export function resolveRemoteServers(toolsEnable: ToolsEnable): RemoteMcpServer[] {
     const servers: RemoteMcpServer[] = [...(toolsEnable.remoteServers ?? [])];
 
     // GitHub MCP：检测到 token 时自动加入

@@ -27,7 +27,7 @@ import XMarkdown from '@ant-design/x-markdown';
 import { useXChat } from '@ant-design/x-sdk';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github.css';
-import { Avatar, Button, Card, Image, Select, Space, Tag, Tooltip, Typography } from 'antd';
+import { Avatar, Button, Card, Image, Segmented, Select, Space, Tag, Tooltip, Typography } from 'antd';
 import React, {
   useCallback,
   useEffect,
@@ -37,7 +37,14 @@ import React, {
   useState,
 } from 'react';
 
-import type { ConversationItem, ParsedMessage, ThoughtNode } from './data';
+import type {
+  ConversationItem,
+  ParsedMessage,
+  TeamBubbleMessage,
+  TeamChatMessage,
+  TeamSegment,
+  ThoughtNode,
+} from './data';
 import {
   createChatProvider,
   fetchSessions,
@@ -51,8 +58,15 @@ import {
   type AttachmentData,
   type WorkspaceTreeNode,
 } from './service';
-import { listAgents, listMcpServers, listSkills } from '../agents/service';
-import type { AgentConfig, McpServerConfig, SkillConfig } from '../agents/types';
+import {
+  createTeamChatProvider,
+  hashAgentColor,
+  isTeamBubbleMessage,
+  STAGE_COLORS,
+  STAGE_LABELS,
+} from './teamService';
+import { listAgents, listMcpServers, listSkills, listTeams } from '../agents/service';
+import type { AgentConfig, McpServerConfig, SkillConfig, TeamConfig } from '../agents/types';
 import { useStyles } from './style';
 
 // 欢迎语，首页打字机效果文案
@@ -66,6 +80,46 @@ const CONVERSATION_SKILLS_STORAGE_KEY = 'chatbot_conversation_skills';
 
 // 持久化“每个会话对应的 MCP 服务器”映射：Record<conversationKey, string[]>
 const CONVERSATION_MCPS_STORAGE_KEY = 'chatbot_conversation_mcps';
+
+// 持久化“每个会话对应的聊天模式”映射：Record<conversationKey, 'single' | 'team'>
+const CONVERSATION_MODE_STORAGE_KEY = 'chatbot_conversation_mode';
+
+// 持久化“每个会话对应的团队”映射：Record<conversationKey, teamName>
+const CONVERSATION_TEAMS_STORAGE_KEY = 'chatbot_conversation_teams';
+
+/**
+ * 从 localStorage 读取每个会话对应的聊天模式映射
+ */
+const readStoredModeMap = (): Record<string, 'single' | 'team'> => {
+  try {
+    const raw = localStorage.getItem(CONVERSATION_MODE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, 'single' | 'team'>;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+};
+
+/**
+ * 从 localStorage 读取每个会话对应的团队映射
+ */
+const readStoredTeamMap = (): Record<string, string> => {
+  try {
+    const raw = localStorage.getItem(CONVERSATION_TEAMS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, string>;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+};
 
 /**
  * 从 localStorage 读取每个会话对应的 Agent 映射
@@ -211,8 +265,26 @@ const TypewriterTitle: React.FC = () => {
  * @param message SDK 返回原始消息对象
  * @returns ParsedMessage 拆分后的结构，区分 thoughtItems / content
  */
-const parser = (message: { content: string; role: string }): ParsedMessage => {
-  const { content, role } = message;
+const parser = (message: any): ParsedMessage | TeamBubbleMessage[] => {
+  // 团队流式消息：携带 team.segments，按 segment 拆分为多角色气泡（一个 segment 一个气泡）
+  if (
+    message?.role === 'assistant' &&
+    Array.isArray((message as TeamChatMessage)?.team?.segments)
+  ) {
+    const segs = (message as TeamChatMessage).team.segments;
+    return segs.map((seg: TeamSegment) => ({
+      role: 'assistant' as const,
+      agent: seg.agent,
+      stage: seg.stage,
+      worker: seg.worker,
+      subtask: seg.subtask,
+      error: seg.error,
+      content: seg.content,
+    }));
+  }
+  // —— 以下为单 Agent 原有解析逻辑，行为完全不变 ——
+  // 断言回字符串类型，恢复 .replace/.match 的上下文类型推断（与基线一致）
+  const { content, role } = message as { content: string; role: string };
   // 用户消息不需要解析思考块，直接原样返回
   if (role !== 'assistant') return { role: 'user', content };
 
@@ -998,6 +1070,106 @@ const ChatbotPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey, agents]);
 
+  // ---------------- 团队模式相关状态 ----------------
+  // 团队列表（聊天页团队下拉数据源）
+  const [teams, setTeams] = useState<TeamConfig[]>([]);
+  const teamsRef = useRef<TeamConfig[]>([]);
+  useEffect(() => {
+    teamsRef.current = teams;
+  }, [teams]);
+
+  // 每个会话对应的聊天模式映射：conversationKey -> 'single' | 'team'
+  const [conversationMode, setConversationMode] = useState<Record<string, 'single' | 'team'>>(
+    readStoredModeMap,
+  );
+  const conversationModeRef = useRef<Record<string, 'single' | 'team'>>(conversationMode);
+  useEffect(() => {
+    conversationModeRef.current = conversationMode;
+  }, [conversationMode]);
+
+  // 当前聊天模式：单 Agent / 团队（互斥）
+  const [chatMode, setChatMode] = useState<'single' | 'team'>(
+    () => readStoredModeMap()[searchParams.get('conversation') ?? 'default'] ?? 'single',
+  );
+  const chatModeRef = useRef<'single' | 'team'>(
+    readStoredModeMap()[searchParams.get('conversation') ?? 'default'] ?? 'single',
+  );
+  useEffect(() => {
+    chatModeRef.current = chatMode;
+  }, [chatMode]);
+
+  // 持久化每个会话的聊天模式映射到 localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(CONVERSATION_MODE_STORAGE_KEY, JSON.stringify(conversationMode));
+    } catch {
+      // 忽略存储失败（如隐私模式）
+    }
+  }, [conversationMode]);
+
+  // 当前会话的聊天模式变更时，写回到 conversationMode[activeKey]
+  useEffect(() => {
+    setConversationMode((prev) => {
+      if (prev[activeKey] === chatMode) return prev;
+      return { ...prev, [activeKey]: chatMode };
+    });
+  }, [chatMode, activeKey]);
+
+  // 切换会话时，恢复该会话对应的聊天模式
+  useEffect(() => {
+    setChatMode(conversationModeRef.current[activeKey] ?? 'single');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey]);
+
+  // 每个会话对应的团队映射：conversationKey -> teamName
+  const [conversationTeams, setConversationTeams] = useState<Record<string, string>>(
+    readStoredTeamMap,
+  );
+  const conversationTeamsRef = useRef<Record<string, string>>(conversationTeams);
+  useEffect(() => {
+    conversationTeamsRef.current = conversationTeams;
+  }, [conversationTeams]);
+
+  // 当前选中的团队
+  const [selectedTeam, setSelectedTeam] = useState<string>(
+    () => readStoredTeamMap()[searchParams.get('conversation') ?? 'default'] ?? '',
+  );
+  const selectedTeamRef = useRef<string>(
+    readStoredTeamMap()[searchParams.get('conversation') ?? 'default'] ?? '',
+  );
+  useEffect(() => {
+    selectedTeamRef.current = selectedTeam;
+  }, [selectedTeam]);
+
+  // 持久化每个会话的团队映射到 localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(CONVERSATION_TEAMS_STORAGE_KEY, JSON.stringify(conversationTeams));
+    } catch {
+      // 忽略存储失败（如隐私模式）
+    }
+  }, [conversationTeams]);
+
+  // 当前会话的团队变更时，写回到 conversationTeams[activeKey]
+  useEffect(() => {
+    setConversationTeams((prev) => {
+      if (prev[activeKey] === selectedTeam) return prev;
+      return { ...prev, [activeKey]: selectedTeam };
+    });
+  }, [selectedTeam, activeKey]);
+
+  // 切换会话时，恢复该会话对应的团队；若已被删除/停用则清空
+  useEffect(() => {
+    const stored = conversationTeamsRef.current[activeKey];
+    const valid = !!stored && teams.some((t) => t.name === stored && (t.active ?? 1) === 1);
+    if (valid) {
+      setSelectedTeam(stored);
+    } else {
+      setSelectedTeam('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey, teams]);
+
   /**
    * 加载工作区文件树（右侧 Folder 组件数据源）
    * 从后端 GET /models-streaming/workspace/tree 获取递归目录树，
@@ -1036,6 +1208,10 @@ const ChatbotPage: React.FC = () => {
     listMcpServers()
       .then((list) => setMcpServers(list.filter((m) => m.active === 1)))
       .catch((e) => console.error('[chatbot] load mcp servers failed:', e));
+    // 加载团队列表，供团队模式下拉选择
+    listTeams()
+      .then((list) => setTeams(list))
+      .catch((e) => console.error('[chatbot] load teams failed:', e));
     loadWorkspaceTree();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1109,7 +1285,8 @@ const ChatbotPage: React.FC = () => {
   // onSessionId：后端在SSE分片中返回sessionId（即threadId）时触发，存入当前对话的映射表
   // getAgent：每次请求时实时返回当前选中的 Agent 名称，后端据此加载对应配置
   // getSkills：每次请求时实时返回当前选中的技能名称数组，后端据此注入技能正文到 system prompt
-  const provider = useMemo(
+  // 单 Agent provider：保持原有逻辑完全不变（仅重命名，行为零改动）
+  const singleProvider = useMemo(
     () =>
       createChatProvider(
         (id: string) => {
@@ -1127,6 +1304,36 @@ const ChatbotPage: React.FC = () => {
       ) as any,
     [],
   );
+
+  // 团队 provider：对接 /multi-agent/stream，SSE 按 agent+stage 累加成 segments，
+  // 由 parser 拆分为多角色气泡。sessionId 回传机制与单 Agent 共用 threadIdMapRef。
+  const teamProvider = useMemo(
+    () =>
+      createTeamChatProvider(
+        (id: string) => {
+          const key = activeKeyRef.current;
+          threadIdMapRef.current[key] = id;
+          setConversations((prev) =>
+            prev.map((c) => (c.key === key ? { ...c, threadId: id } : c)),
+          );
+        },
+        {
+          // 每次请求实时读取当前选中的团队完整配置（getTeam 返回 TeamConfig 对象）
+          getTeam: () => {
+            const name = selectedTeamRef.current;
+            if (!name) return null;
+            return teamsRef.current.find((t) => t.name === name) ?? null;
+          },
+          getSkills: () => selectedSkillsRef.current,
+          getMcps: () => selectedMcpsRef.current,
+          getAttachments: () => attachmentsRef.current,
+        },
+      ) as any,
+    [],
+  );
+
+  // 根据当前模式选择 provider：单 Agent 与团队互斥（切换时对方选择器被清空）
+  const activeProvider = chatMode === 'team' ? teamProvider : singleProvider;
   /**
    * useXChat 核心钩子
    * provider：对接service里的请求逻辑
@@ -1140,9 +1347,9 @@ const ChatbotPage: React.FC = () => {
    */
   const { onRequest, abort, isRequesting, parsedMessages } = useXChat<
     any,
-    ParsedMessage
+    ParsedMessage | TeamBubbleMessage
   >({
-    provider,
+    provider: activeProvider,
     conversationKey: activeKey,
     parser,
     requestPlaceholder: { role: 'assistant', content: '' },
@@ -1337,6 +1544,15 @@ const ChatbotPage: React.FC = () => {
       ...prev,
       [key]: [...selectedMcpsRef.current],
     }));
+    // 新会话继承当前聊天模式与团队选择
+    setConversationMode((prev) => ({
+      ...prev,
+      [key]: chatModeRef.current,
+    }));
+    setConversationTeams((prev) => ({
+      ...prev,
+      [key]: selectedTeamRef.current,
+    }));
     setConversations((prev) => [
       { key, label: '新对话', group: '今天', isDraft: true },
       ...prev,
@@ -1372,7 +1588,49 @@ const ChatbotPage: React.FC = () => {
   const bubbleItems = useMemo<BubbleItemType[]>(
     () =>
       parsedMessages.map((msg) => {
-        const parsed = msg.message as ParsedMessage;
+        const parsed = msg.message as ParsedMessage | TeamBubbleMessage;
+
+        // 团队气泡：按 agent 分色头像 + stage 中文标签，多角色区分
+        if (isTeamBubbleMessage(parsed)) {
+          const color = hashAgentColor(parsed.agent);
+          const stageLabel = STAGE_LABELS[parsed.stage] ?? parsed.stage;
+          const stageColor = STAGE_COLORS[parsed.stage] ?? 'default';
+          return {
+            key: msg.id,
+            role: 'ai',
+            content: parsed.content,
+            loading: msg.status === 'loading',
+            status: msg.status,
+            avatar: (
+              <Avatar style={{ background: color, verticalAlign: 'middle' }}>
+                {parsed.agent.slice(0, 1).toUpperCase()}
+              </Avatar>
+            ),
+            header: (
+              <Space size={6} align="center" style={{ marginBottom: 4, flexWrap: 'wrap' }}>
+                <Tag color={stageColor} style={{ margin: 0 }}>
+                  {stageLabel}
+                </Tag>
+                <Typography.Text strong style={{ color }}>
+                  {parsed.agent}
+                </Typography.Text>
+                {parsed.worker && parsed.worker !== parsed.agent && (
+                  <Typography.Text type="secondary">→ {parsed.worker}</Typography.Text>
+                )}
+                {parsed.subtask && (
+                  <Typography.Text type="secondary">· {parsed.subtask}</Typography.Text>
+                )}
+                {parsed.error && (
+                  <Tag color="red" style={{ margin: 0 }}>
+                    {parsed.error}
+                  </Tag>
+                )}
+              </Space>
+            ),
+          } as BubbleItemType;
+        }
+
+        // 单 Agent 路径：以下逻辑保持完全不变
         const isAI = parsed.role === 'assistant';
         const thoughtItems =
           parsed.role === 'assistant' ? parsed.thoughtItems : undefined;
@@ -1463,6 +1721,22 @@ const ChatbotPage: React.FC = () => {
 
   // 是否存在对话消息，区分欢迎页和消息列表
   const hasMessages = parsedMessages.length > 0;
+
+  // 选择栏右侧的摘要文本：根据模式显示 Agent 或团队，外加技能 / MCP 计数
+  const selectionSummary = useMemo(() => {
+    const mainSel = chatMode === 'team' ? selectedTeam : selectedAgent;
+    if (!mainSel && selectedSkills.length === 0 && selectedMcps.length === 0) return null;
+    const parts: string[] = [];
+    if (chatMode === 'team' && selectedTeam) parts.push(`团队: ${selectedTeam}`);
+    if (chatMode === 'single' && selectedAgent) parts.push(`Agent: ${selectedAgent}`);
+    if (selectedSkills.length > 0) parts.push(`Skills: ${selectedSkills.length} 个`);
+    if (selectedMcps.length > 0) parts.push(`MCP: ${selectedMcps.length} 个`);
+    return (
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        {parts.join(' · ')}
+      </Typography.Text>
+    );
+  }, [chatMode, selectedTeam, selectedAgent, selectedSkills, selectedMcps]);
 
   /**
    * 把会话列表转换为 Conversations 组件所需的 items：
@@ -1595,6 +1869,20 @@ const ChatbotPage: React.FC = () => {
                         delete next[conversation.key];
                         return next;
                       });
+                      // 清理该会话对应的聊天模式缓存
+                      setConversationMode((prev) => {
+                        if (!(conversation.key in prev)) return prev;
+                        const next = { ...prev };
+                        delete next[conversation.key];
+                        return next;
+                      });
+                      // 清理该会话对应的团队缓存
+                      setConversationTeams((prev) => {
+                        if (!(conversation.key in prev)) return prev;
+                        const next = { ...prev };
+                        delete next[conversation.key];
+                        return next;
+                      });
                       // 清理该会话对应的附件缓存
                       setConversationAttachments((prev) => {
                         if (!(conversation.key in prev)) return prev;
@@ -1635,7 +1923,10 @@ const ChatbotPage: React.FC = () => {
             <div className={styles.main}>
               {/* Agent + Skills + MCP 选择栏：用户可选择对话使用的 Agent、技能和 MCP 服务器，
                   选中的 Agent 名称、技能列表和 MCP 服务器列表会随每条请求透传到后端流式接口 */}
-              {(agents.length > 0 || skills.length > 0 || mcpServers.length > 0) && (
+              {(agents.length > 0 ||
+                teams.length > 0 ||
+                skills.length > 0 ||
+                mcpServers.length > 0) && (
                 <div
                   style={{
                     padding: '8px 16px',
@@ -1646,13 +1937,31 @@ const ChatbotPage: React.FC = () => {
                     flexWrap: 'wrap',
                   }}
                 >
-                  {agents.length > 0 && (
+                  {/* 单 Agent / 团队 互斥切换：选团队则清空 Agent，反之亦然 */}
+                  <Segmented
+                    value={chatMode}
+                    onChange={(val) => {
+                      const mode = val as 'single' | 'team';
+                      setChatMode(mode);
+                      if (mode === 'team') setSelectedAgent('');
+                      else setSelectedTeam('');
+                    }}
+                    options={[
+                      { label: '单 Agent', value: 'single' },
+                      { label: '团队', value: 'team' },
+                    ]}
+                  />
+                  {chatMode === 'single' && agents.length > 0 && (
                     <Space size={8} wrap>
                       <Tag color="blue">Agent</Tag>
                       <Select
                         placeholder="选择 Agent"
                         value={selectedAgent || undefined}
-                        onChange={(val) => setSelectedAgent(val || '')}
+                        onChange={(val) => {
+                          setSelectedAgent(val || '');
+                          setChatMode('single');
+                          setSelectedTeam('');
+                        }}
                         options={agents.map((a) => ({
                           label: a.name,
                           value: a.name,
@@ -1661,6 +1970,25 @@ const ChatbotPage: React.FC = () => {
                       />
                     </Space>
                   )}
+                  {chatMode === 'team' &&
+                    teams.filter((t) => (t.active ?? 1) === 1).length > 0 && (
+                      <Space size={8} wrap>
+                        <Tag color="green">团队</Tag>
+                        <Select
+                          placeholder="选择团队"
+                          value={selectedTeam || undefined}
+                          onChange={(val) => {
+                            setSelectedTeam(val || '');
+                            setChatMode('team');
+                            setSelectedAgent('');
+                          }}
+                          options={teams
+                            .filter((t) => (t.active ?? 1) === 1)
+                            .map((t) => ({ label: t.name, value: t.name }))}
+                          style={{ minWidth: 180 }}
+                        />
+                      </Space>
+                    )}
                   {skills.length > 0 && (
                     <Space size={8} wrap>
                       <Tag color="gold">Skills</Tag>
@@ -1700,15 +2028,7 @@ const ChatbotPage: React.FC = () => {
                       />
                     </Space>
                   )}
-                  {(selectedAgent || selectedSkills.length > 0 || selectedMcps.length > 0) && (
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      {selectedAgent && `Agent: ${selectedAgent}`}
-                      {selectedAgent && (selectedSkills.length > 0 || selectedMcps.length > 0) && ' · '}
-                      {selectedSkills.length > 0 && `Skills: ${selectedSkills.length} 个`}
-                      {selectedSkills.length > 0 && selectedMcps.length > 0 && ' · '}
-                      {selectedMcps.length > 0 && `MCP: ${selectedMcps.length} 个`}
-                    </Typography.Text>
-                  )}
+                  {selectionSummary}
                 </div>
               )}
 

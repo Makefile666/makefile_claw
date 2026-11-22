@@ -97,4 +97,62 @@ describe('ClawConfigService (migration)', () => {
     );
     expect(service.readConfig().agents[0].tools).toEqual(['t1', 't2']);
   });
+
+  it('defaults teams to [] when config file has no teams field (backward compat)', () => {
+    vi.mocked(readFileSync).mockReturnValue(
+      JSON.stringify({ agents: [], models: [], tools: [] }),
+    );
+    expect(service.readConfig().teams).toEqual([]);
+  });
+
+  it('migrates team fields and normalizes invalid mode to hierarchy', () => {
+    vi.mocked(readFileSync).mockReturnValue(
+      JSON.stringify({
+        teams: [
+          {
+            name: 'dev-team',
+            description: 'desc',
+            supervisor: 'sup',
+            workers: ['coder', 'reviewer'],
+            mode: 'bad-mode',
+            active: 1,
+          },
+        ],
+      }),
+    );
+    const team = service.readConfig().teams[0];
+    expect(team.name).toBe('dev-team');
+    expect(team.supervisor).toBe('sup');
+    expect(team.workers).toEqual(['coder', 'reviewer']);
+    expect(team.mode).toBe('hierarchy');
+    expect(team.active).toBe(1);
+  });
+
+  it('preserves agent optional fields role/capabilities/workspace/maxConcurrency', () => {
+    vi.mocked(readFileSync).mockReturnValue(
+      JSON.stringify({
+        agents: [
+          {
+            name: 'coder',
+            description: 'd',
+            model: 'm',
+            systemPrompt: 'p',
+            tools: [],
+            active: 1,
+            role: 'supervisor',
+            capabilities: ['编码'],
+            workspace: 'ws/coder',
+            maxConcurrency: 1,
+          },
+        ],
+        models: [],
+        tools: [],
+      }),
+    );
+    const agent = service.readConfig().agents[0] as any;
+    expect(agent.role).toBe('supervisor');
+    expect(agent.capabilities).toEqual(['编码']);
+    expect(agent.workspace).toBe('ws/coder');
+    expect(agent.maxConcurrency).toBe(1);
+  });
 });

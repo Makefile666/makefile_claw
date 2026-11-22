@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { getBaseDir } from '@makefile-claw/agent-core';
 import {
   BUILTIN_TOOLS,
   DEFAULT_CONFIG,
@@ -10,8 +10,16 @@ import {
   type ClawConfig,
   type McpServerConfig,
   type ModelConfig,
+  type TeamConfig,
+  type TeamMode,
   type ToolConfig,
 } from './claw-config.types.js';
+
+/**
+ * 容错：配置字段可能被写成对象 / 空值 / 缺失（例如手工编辑或旧版本写入），
+ * 统一归一成数组，避免 .map 崩溃拖垮所有接口（AC-15 容错）。
+ */
+const asArray = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 
 /**
  * 兼容旧版 Agent 字段：
@@ -25,6 +33,10 @@ const migrateAgent = (raw: Record<string, unknown>): AgentConfig => {
         .map((t) => (typeof t === 'string' ? t : (t as { id?: string })?.id))
         .filter((id): id is string => !!id)
     : [];
+  const role = raw.role === 'supervisor' ? 'supervisor' : raw.role === 'worker' ? 'worker' : undefined;
+  const capabilities = Array.isArray(raw.capabilities)
+    ? raw.capabilities.map((c) => String(c)).filter(Boolean)
+    : undefined;
   return {
     name: String(raw.name ?? ''),
     description: String(raw.description ?? ''),
@@ -32,6 +44,10 @@ const migrateAgent = (raw: Record<string, unknown>): AgentConfig => {
     systemPrompt: String(raw.systemPrompt ?? ''),
     tools,
     active: typeof raw.active === 'number' ? raw.active : 1,
+    role,
+    capabilities,
+    workspace: raw.workspace != null ? String(raw.workspace) : undefined,
+    maxConcurrency: typeof raw.maxConcurrency === 'number' ? raw.maxConcurrency : undefined,
   };
 };
 
@@ -100,6 +116,46 @@ const migrateMcpServer = (raw: Record<string, unknown>): McpServerConfig => {
 };
 
 /**
+ * 兼容 Team 字段：
+ * - mode 非法值兜底为 'hierarchy'
+ * - edges 缺失时为 undefined（hierarchy 模式不需要）
+ * - workers 归一化为字符串数组
+ * - active 缺失默认 1
+ */
+const migrateTeam = (raw: Record<string, unknown>): TeamConfig => {
+  const rawMode = raw.mode;
+  const mode: TeamMode =
+    rawMode === 'pipeline' || rawMode === 'parallel' ? rawMode : 'hierarchy';
+  const edges = Array.isArray(raw.edges)
+    ? raw.edges
+        .map((e) => {
+          const obj = e as Record<string, unknown>;
+          return {
+            from: String(obj?.from ?? ''),
+            to: String(obj?.to ?? ''),
+            condition: obj?.condition != null ? String(obj.condition) : undefined,
+          };
+        })
+        .filter((e) => e.from && e.to)
+    : undefined;
+  return {
+    name: String(raw.name ?? ''),
+    description: String(raw.description ?? ''),
+    supervisor: String(raw.supervisor ?? ''),
+    workers: Array.isArray(raw.workers)
+      ? raw.workers.map((w) => String(w)).filter(Boolean)
+      : [],
+    mode,
+    edges,
+    maxParallelWorkers:
+      typeof raw.maxParallelWorkers === 'number' ? raw.maxParallelWorkers : undefined,
+    active: typeof raw.active === 'number' ? raw.active : 1,
+    createdAt: raw.createdAt != null ? String(raw.createdAt) : undefined,
+    updatedAt: raw.updatedAt != null ? String(raw.updatedAt) : undefined,
+  };
+};
+
+/**
  * 共享配置服务：负责 ~/.makefile_claw/makefile_claw.json 的读写。
  * 所有业务模块（agents / models / tools）都通过本服务操作配置文件，
  * 各业务模块的 Service 只关注对应子树的 CRUD。
@@ -111,7 +167,9 @@ export class ClawConfigService implements OnModuleInit {
   private readonly configFile: string;
 
   constructor() {
-    this.configDir = join(homedir(), '.makefile_claw');
+    // 通过 getBaseDir 解析，支持 MAKEFILE_CLAW_HOME 覆盖（与编排引擎 / 调度器 / CLI 保持一致），
+    // 避免 API 侧 teams/schedules 与 orchestrator 读配置的位置发散。
+    this.configDir = getBaseDir();
     this.configFile = join(this.configDir, 'makefile_claw.json');
   }
 
@@ -186,8 +244,9 @@ export class ClawConfigService implements OnModuleInit {
       config = { ...DEFAULT_CONFIG };
     }
     // 合并内置工具：已存在的保留用户设置，新增的补默认值
-    const existingToolNames = new Set((config.tools ?? []).map((t) => (t as ToolConfig).name));
-    const migratedTools: ToolConfig[] = (config.tools ?? []).map((t) =>
+    const toolsArr = asArray<ToolConfig>(config.tools);
+    const existingToolNames = new Set(toolsArr.map((t) => t.name));
+    const migratedTools: ToolConfig[] = toolsArr.map((t) =>
       migrateTool(t as unknown as Record<string, unknown>),
     );
     const mergedTools: ToolConfig[] = [
@@ -195,25 +254,28 @@ export class ClawConfigService implements OnModuleInit {
       ...BUILTIN_TOOLS.filter((t) => !existingToolNames.has(t.name)),
     ];
     return {
-      agents: (config.agents ?? []).map((a) => migrateAgent(a as unknown as Record<string, unknown>)),
-      models: (config.models ?? []).map((m) => migrateModel(m as unknown as Record<string, unknown>)),
+      agents: asArray(config.agents).map((a) => migrateAgent(a as unknown as Record<string, unknown>)),
+      models: asArray(config.models).map((m) => migrateModel(m as unknown as Record<string, unknown>)),
       tools: mergedTools,
-      mcpServers: (config.mcpServers ?? []).map((m) => migrateMcpServer(m as unknown as Record<string, unknown>)),
+      mcpServers: asArray(config.mcpServers).map((m) => migrateMcpServer(m as unknown as Record<string, unknown>)),
+      teams: asArray(config.teams).map((t) => migrateTeam(t as unknown as Record<string, unknown>)),
     };
   }
 
   /** 保存完整配置 */
   saveConfig(config: ClawConfig): ClawConfig {
-    const existingToolNames = new Set((config.tools ?? []).map((t) => t.name));
+    const toolsArr = asArray<ToolConfig>(config.tools);
+    const existingToolNames = new Set(toolsArr.map((t) => t.name));
     const mergedTools: ToolConfig[] = [
-      ...(config.tools ?? []),
+      ...toolsArr,
       ...BUILTIN_TOOLS.filter((t) => !existingToolNames.has(t.name)),
     ];
     const toSave: ClawConfig = {
-      agents: config.agents ?? [],
-      models: config.models ?? [],
+      agents: asArray(config.agents),
+      models: asArray(config.models),
       tools: mergedTools,
-      mcpServers: config.mcpServers ?? [],
+      mcpServers: asArray(config.mcpServers),
+      teams: asArray(config.teams),
     };
     this.atomicWrite(JSON.stringify(toSave, null, 2));
     this.logger.log('配置已保存');

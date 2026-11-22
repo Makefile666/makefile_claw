@@ -35,6 +35,46 @@ export interface AgentConfig {
   systemPrompt: string;
   tools: string[];
   active: number;
+  /** 角色标签：supervisor 主管 / worker 执行者（仅作能力提示，团队中实际角色由 TeamConfig 决定） */
+  role?: 'worker' | 'supervisor';
+  /** 能力标签列表，供主管匹配委派（如 ['编码', '审查', '调研']） */
+  capabilities?: string[];
+  /** 独立子工作区路径（相对工作区根），缺省由编排层按 teamThreadId/workerName 自动生成 */
+  workspace?: string;
+  /** 该 Agent 最大并发执行数，缺省 2（编排层并发控制用） */
+  maxConcurrency?: number;
+}
+
+/** 团队协作模式：hierarchy=主管动态委派（模式 C，默认）；pipeline=固定流水线；parallel=并行分治 */
+export type TeamMode = 'hierarchy' | 'pipeline' | 'parallel';
+
+/** 团队拓扑连线（pipeline/parallel 模式下描述固定路由；hierarchy 模式下可省略，由主管动态决策） */
+export interface TeamEdge {
+  /** 源节点名，'__start__' 表示入口 */
+  from: string;
+  /** 目标节点名，'__end__' 表示结束 */
+  to: string;
+  /** 触发条件描述（可选） */
+  condition?: string;
+}
+
+export interface TeamConfig {
+  /** 团队名称，唯一键 */
+  name: string;
+  description: string;
+  /** 主管 Agent 名称（必须存在于 agents 配置中） */
+  supervisor: string;
+  /** 参与的 Worker Agent 名称列表（必须存在于 agents 配置中） */
+  workers: string[];
+  /** 协作模式，默认 hierarchy */
+  mode: TeamMode;
+  /** 拓扑连线（pipeline/parallel 模式必填，hierarchy 可选） */
+  edges?: TeamEdge[];
+  /** 全局最大并行 Worker 数，缺省 3 */
+  maxParallelWorkers?: number;
+  active: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface McpServerConfig {
@@ -57,6 +97,8 @@ export interface ClawConfig {
   models: ModelConfig[];
   tools: ToolConfig[];
   mcpServers: McpServerConfig[];
+  /** 多智能体团队编排配置 */
+  teams: TeamConfig[];
 }
 
 export const BUILTIN_TOOLS: ToolConfig[] = [
@@ -115,4 +157,5 @@ export const DEFAULT_CONFIG: ClawConfig = {
   models: [],
   tools: BUILTIN_TOOLS,
   mcpServers: [],
+  teams: [],
 };

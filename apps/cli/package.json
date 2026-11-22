@@ -1,0 +1,25 @@
+{
+  "name": "@makefile-claw/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MakefileClaw command-line interface (team run + schedules)",
+  "type": "module",
+  "bin": {
+    "makefile-claw": "dist/cli.js"
+  },
+  "main": "dist/cli.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@makefile-claw/agent-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^6.0.2"
+  }
+}

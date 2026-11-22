@@ -333,6 +333,12 @@ export default [
         icon: 'api',
         component: './agents/Mcp',
       },
+      {
+        path: '/agents/teams',
+        name: '团队编排',
+        icon: 'team',
+        component: './agents/Teams',
+      },
     ],
   },
   {

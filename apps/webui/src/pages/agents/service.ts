@@ -6,6 +6,7 @@ import type {
   McpServerConfig,
   ModelConfig,
   SkillConfig,
+  TeamConfig,
   ToolConfig,
 } from './types';
 /**
@@ -397,4 +398,60 @@ export async function toggleMcpServerActive(
     { method: 'PUT', data: { active: active ? 1 : 0 } },
   );
   return res.data;
+}
+
+// ---------- Teams 增删改查【独立 REST 接口】 ----------
+// 对接后端 /api/teams，管理多智能体团队编排配置
+// name 为唯一标识：GET/PUT/DELETE /api/teams/:name
+// supervisor / workers 均引用 agents 配置中的 Agent 名称
+/**
+ * 获取全部团队列表
+ * GET /api/teams
+ */
+export async function listTeams(): Promise<TeamConfig[]> {
+  const res = await request<{ code: number; data: TeamConfig[]; msg: string }>(
+    `${BASE_URL}/teams`,
+    { method: 'GET' },
+  );
+  return res.data;
+}
+
+/**
+ * 新建团队
+ * POST /api/teams
+ * name 为唯一标识，由前端填写
+ */
+export async function createTeam(team: TeamConfig): Promise<TeamConfig> {
+  const res = await request<{ code: number; data: TeamConfig; msg: string }>(
+    `${BASE_URL}/teams`,
+    { method: 'POST', data: team },
+  );
+  return res.data;
+}
+
+/**
+ * 更新团队
+ * PUT /api/teams/:name
+ * 仅传递需要修改的字段 patch
+ */
+export async function updateTeam(
+  name: string,
+  patch: Partial<TeamConfig>,
+): Promise<TeamConfig | undefined> {
+  const res = await request<{ code: number; data: TeamConfig; msg: string }>(
+    `${BASE_URL}/teams/${name}`,
+    { method: 'PUT', data: patch },
+  );
+  return res.data;
+}
+
+/**
+ * 删除团队
+ * DELETE /api/teams/:name
+ */
+export async function deleteTeam(name: string): Promise<void> {
+  await request<{ code: number; data: null; msg: string }>(
+    `${BASE_URL}/teams/${name}`,
+    { method: 'DELETE' },
+  );
 }

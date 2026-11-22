@@ -44,6 +44,31 @@ export interface ClawConfig {
   mcpServers: McpServerConfig[];
 }
 
+/** 团队协作模式：hierarchy=主管动态委派（默认）；pipeline=固定流水线；parallel=并行分治 */
+export type TeamMode = 'hierarchy' | 'pipeline' | 'parallel';
+
+/**
+ * 多智能体团队配置
+ * 对应后端 ~/.makefile_claw/makefile_claw.json 中的 teams 数组
+ * name 为唯一键；supervisor / workers 均引用 agents 配置中的 Agent 名称
+ */
+export interface TeamConfig {
+  /** 团队名称，唯一键 */
+  name: string;
+  /** 团队简要描述 */
+  description?: string;
+  /** 主管 Agent 名称（必须存在于 agents 配置中） */
+  supervisor: string;
+  /** 参与的 Worker Agent 名称列表 */
+  workers: string[];
+  /** 协作模式，默认 hierarchy */
+  mode?: TeamMode;
+  /** 全局最大并行 Worker 数，缺省 3 */
+  maxParallelWorkers?: number;
+  /** 是否启用（0-未启用，1-已启用） */
+  active?: number;
+}
+
 /**
  * MCP 服务器配置
  * 对应后端 ~/.makefile_claw/makefile_claw.json 中的 mcpServers 数组

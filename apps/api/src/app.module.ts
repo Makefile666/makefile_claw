@@ -7,7 +7,10 @@ import { ClawConfigModule } from './claw-config/claw-config.module.js';
 import { McpModule } from './mcp/mcp.module.js';
 import { ModelsModule } from './models/models.module.js';
 import { SkillsModule } from './skills/skills.module.js';
+import { TeamsModule } from './teams/teams.module.js';
 import { ToolsModule } from './tools/tools.module.js';
+import { MultiAgentModule } from './multi-agent/multi-agent.module.js';
+import { SchedulerModule } from './scheduler/scheduler.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -27,6 +30,9 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     ToolsModule,
     SkillsModule,
     McpModule,
+    TeamsModule,
+    MultiAgentModule,
+    SchedulerModule,
   ],
   controllers: [AppController],
   providers: [AppService],

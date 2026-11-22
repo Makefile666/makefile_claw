@@ -1,22 +1,25 @@
 import fs from 'node:fs';
-import { homedir } from 'node:os';
-import {join} from 'node:path';
+import { join } from 'node:path';
+import { getBaseDir } from './paths.js';
 
-// 1. 生成智能体配置的路径（Agents 配置文件的路径）
-const configPath = join(
-    homedir(),
-    '.makefile_claw',
-    'makefile_claw.json',
-);
+/** 配置文件路径：通过 getBaseDir 解析，支持 MAKEFILE_CLAW_HOME 覆盖（便于测试隔离） */
+function getConfigPath(): string {
+    return join(getBaseDir(), 'makefile_claw.json');
+}
 
 /**
- * 2. 读取配置文件。
+ * 读取配置文件。
  * 注意：必须每次调用都从磁盘重新读取，不能在模块加载时缓存。
  * 配置文件会被 Web UI 实时修改（新增/改名 Agent、Model），
  * 若缓存到模块作用域，本进程在不重启的情况下永远读不到新配置。
  */
 function loadConfig(): any {
-    return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    return JSON.parse(fs.readFileSync(getConfigPath(), 'utf-8'));
+}
+
+/** 读取完整配置（agents / models / tools / mcpServers / teams） */
+export function readConfig(): any {
+    return loadConfig();
 }
 
 
